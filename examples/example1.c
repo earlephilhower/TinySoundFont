@@ -51,7 +51,7 @@ int main(int argc, char *argv[])
 	}
 
 	// Load the SoundFont from the memory block
-	g_TinySoundFont = tsf_load_memory(MinimalSoundFont, sizeof(MinimalSoundFont));
+	g_TinySoundFont = tsf_load_filename("1mgm.sf2");
 	if (!g_TinySoundFont)
 	{
 		fprintf(stderr, "Could not load soundfont\n");

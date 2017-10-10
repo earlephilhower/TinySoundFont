@@ -213,12 +213,14 @@ typedef char tsf_char20[20];
 
 #define TSF_FourCCEquals(value1, value2) (value1[0] == value2[0] && value1[1] == value2[1] && value1[2] == value2[2] && value1[3] == value2[3])
 
+
 struct tsf
 {
 	struct tsf_preset* presets;
 	int presetNum;
 
-	float* fontSamples;
+	FILE *fontSamplesFile;
+	int fontSamplesOffset;
 	int fontSampleCount;
 
 	struct tsf_voice *voices;
@@ -251,7 +253,7 @@ TSFDEF tsf* tsf_load_filename(const char* filename)
 	}
 	stream.data = f;
 	res = tsf_load(&stream);
-	fclose(f);
+	//fclose(f);
 	return res;
 }
 #endif
@@ -516,7 +518,7 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 							preset->regionNum++;
 			}
 		}
-
+printf("preser memory usage: %ld\n", preset->regionNum * sizeof(struct tsf_region));
 		preset->regions = (struct tsf_region*)TSF_MALLOC(preset->regionNum * sizeof(struct tsf_region));
 
 		// Zones.
@@ -647,23 +649,14 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 	}
 }
 
-static void tsf_load_samples(float** fontSamples, int* fontSampleCount, struct tsf_riffchunk *chunkSmpl, struct tsf_stream* stream)
+static void tsf_load_samples(FILE *file, FILE **fontSamplesFile, int *fontSamplesOffset, int* fontSampleCount, struct tsf_riffchunk *chunkSmpl, struct tsf_stream* stream)
 {
 	// Read sample data into float format buffer.
 	float* out; unsigned int samplesLeft, samplesToRead, samplesToConvert;
 	samplesLeft = *fontSampleCount = chunkSmpl->size / sizeof(short);
-	out = *fontSamples = (float*)TSF_MALLOC(samplesLeft * sizeof(float));
-	for (; samplesLeft; samplesLeft -= samplesToRead)
-	{
-		short sampleBuffer[1024], *in = sampleBuffer;;
-		samplesToRead = (samplesLeft > 1024 ? 1024 : samplesLeft);
-		stream->read(stream->data, sampleBuffer, samplesToRead * sizeof(short));
-
-		// Convert from signed 16-bit to float.
-		for (samplesToConvert = samplesToRead; samplesToConvert > 0; --samplesToConvert)
-			// If we ever need to compile for big-endian platforms, we'll need to byte-swap here.
-			*out++ = (float)(*in++ / 32767.0);
-	}
+	*fontSamplesFile = file;
+	*fontSamplesOffset = ftell(file);
+	stream->skip(stream->data, samplesLeft * sizeof(short));
 }
 
 static void tsf_voice_envelope_nextsegment(struct tsf_voice_envelope* e, int active_segment, float outSampleRate)
@@ -856,10 +849,51 @@ static void tsf_voice_calcpitchratio(struct tsf_voice* v, float outSampleRate)
 	v->pitchOutputFactor = v->region->sample_rate / (tsf_timecents2Secsd(v->region->pitch_keycenter * 100.0) * outSampleRate);
 }
 
+#define TSF_BUFFS 16
+#define TSF_BUFFSIZE 256
+short tsf_read_short_cached(tsf *f, int pos)
+{
+	static char initted = TSF_FALSE;
+	static short *buffer[TSF_BUFFS];
+	static int offset[TSF_BUFFS];
+	static int timestamp[TSF_BUFFS];
+	static int epoch = 0;
+	static int hits = 0;
+	static int misses = 0;
+	static int call =0;
+	call++;
+	if ((call % 88000) ==0) printf("Hit: %d, Miss: %d, Ratio: %f\n", hits, misses, (double)hits/(double)(misses+hits));
+	if (!initted) {
+		for (int i=0; i<TSF_BUFFS; i++) {
+			buffer[i] = malloc(TSF_BUFFSIZE * sizeof(short));
+			offset[i] = 0xfffffff;
+			timestamp[i] = -1;
+		}
+		initted = TSF_TRUE;
+	}
+	for (int i=0; i<TSF_BUFFS; i++) {
+		if ((offset[i] <= pos) && ((offset[i] + TSF_BUFFSIZE) > pos) ) {
+			timestamp[i] = epoch++;
+			hits++;
+			return buffer[i][pos - offset[i]];
+		}
+	}
+	int repl = 0;
+	for (int i=1; i<TSF_BUFFS; i++) {
+		if (timestamp[i] < timestamp[repl]) repl = i;
+	}
+	int readOff = pos - (pos % TSF_BUFFSIZE);
+	fseek(f->fontSamplesFile, readOff * sizeof(short), SEEK_SET);
+	fread(buffer[repl], TSF_BUFFSIZE * sizeof(short), 1, f->fontSamplesFile);
+	timestamp[repl] = epoch++;
+	offset[repl] = readOff;
+	misses++;
+	return buffer[repl][pos - readOff];
+}
+
 static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, int numSamples)
 {
 	struct tsf_region* region = v->region;
-	float* input = f->fontSamples;
 	float* outL = outputBuffer;
 	float* outR = (f->outputmode == TSF_STEREO_UNWEAVED ? outL + numSamples : TSF_NULL);
 
@@ -928,9 +962,17 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 				while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
 				{
 					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
-
+					short s; float inputPos, inputNextPos;
+//					fseek(f->fontSamplesFile, f->fontSamplesOffset + pos * sizeof(short), SEEK_SET);
+//					fread(&s, sizeof(s), 1, f->fontSamplesFile);
+//					inputPos = (float)(s/32767.0);
+//					fseek(f->fontSamplesFile, f->fontSamplesOffset + nextPos * sizeof(short), SEEK_SET);
+//					fread(&s, sizeof(s), 1, f->fontSamplesFile);
+//					inputNextPos = (float)(s/32767.0);
+					inputPos = (float)(tsf_read_short_cached(f, pos) / 32767.0);
+					inputNextPos = (float)(tsf_read_short_cached(f, nextPos) / 32767.0);
 					// Simple linear interpolation.
-					float alpha = (float)(tmpSourceSamplePosition - pos), val = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
+					float alpha = (float)(tmpSourceSamplePosition - pos), val = (inputPos * (1.0f - alpha) + inputNextPos * alpha);
 
 					// Low-pass filter.
 					if (tmpLowpass.active) val = tsf_voice_lowpass_process(&tmpLowpass, val);
@@ -949,9 +991,18 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 				while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
 				{
 					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
+					short s; float inputPos, inputNextPos;
+//					fseek(f->fontSamplesFile, f->fontSamplesOffset + pos * sizeof(short), SEEK_SET);
+//					fread(&s, sizeof(s), 1, f->fontSamplesFile);
+//					inputPos = (float)(s/32767.0);
+//					fseek(f->fontSamplesFile, f->fontSamplesOffset + nextPos * sizeof(short), SEEK_SET);
+//					fread(&s, sizeof(s), 1, f->fontSamplesFile);
+//					inputNextPos = (float)(s/32767.0);
+					inputPos = (float)(tsf_read_short_cached(f, pos) / 32767.0);
+					inputNextPos = (float)(tsf_read_short_cached(f, nextPos) / 32767.0);
 
 					// Simple linear interpolation.
-					float alpha = (float)(tmpSourceSamplePosition - pos), val = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
+					float alpha = (float)(tmpSourceSamplePosition - pos), val = (inputPos * (1.0f - alpha) + inputNextPos * alpha);
 
 					// Low-pass filter.
 					if (tmpLowpass.active) val = tsf_voice_lowpass_process(&tmpLowpass, val);
@@ -969,9 +1020,18 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 				while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
 				{
 					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
+					short s; float inputPos, inputNextPos;
+//					fseek(f->fontSamplesFile, f->fontSamplesOffset + pos * sizeof(short), SEEK_SET);
+//					fread(&s, sizeof(s), 1, f->fontSamplesFile);
+//					inputPos = (float)(s/32767.0);
+//					fseek(f->fontSamplesFile, f->fontSamplesOffset + nextPos * sizeof(short), SEEK_SET);
+//					fread(&s, sizeof(s), 1, f->fontSamplesFile);
+//					inputNextPos = (float)(s/32767.0);
+					inputPos = (float)(tsf_read_short_cached(f, pos) / 32767.0);
+					inputNextPos = (float)(tsf_read_short_cached(f, nextPos) / 32767.0);
 
 					// Simple linear interpolation.
-					float alpha = (float)(tmpSourceSamplePosition - pos), val = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
+					float alpha = (float)(tmpSourceSamplePosition - pos), val = (inputPos * (1.0f - alpha) + inputNextPos * alpha);
 
 					// Low-pass filter.
 					if (tmpLowpass.active) val = tsf_voice_lowpass_process(&tmpLowpass, val);
@@ -1002,7 +1062,8 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 	struct tsf_riffchunk chunkHead;
 	struct tsf_riffchunk chunkList;
 	struct tsf_hydra hydra;
-	float* fontSamples = TSF_NULL;
+	FILE *fontSamplesFile;
+	int fontSamplesOffset;
 	int fontSampleCount;
 
 	if (!tsf_riffchunk_read(TSF_NULL, &chunkHead, stream) || !TSF_FourCCEquals(chunkHead.id, "sfbk"))
@@ -1046,7 +1107,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 			{
 				if (TSF_FourCCEquals(chunk.id, "smpl"))
 				{
-					tsf_load_samples(&fontSamples, &fontSampleCount, &chunk, stream);
+					tsf_load_samples((FILE*)stream->data, &fontSamplesFile, &fontSamplesOffset, &fontSampleCount, &chunk, stream);
 				}
 				else stream->skip(stream->data, chunk.size);
 			}
@@ -1057,7 +1118,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 	{
 		//if (e) *e = TSF_INVALID_INCOMPLETE;
 	}
-	else if (fontSamples == TSF_NULL)
+	else if (fontSamplesFile == TSF_NULL)
 	{
 		//if (e) *e = TSF_INVALID_NOSAMPLEDATA;
 	}
@@ -1067,16 +1128,15 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		TSF_MEMSET(res, 0, sizeof(tsf));
 		res->presetNum = hydra.phdrNum - 1;
 		res->presets = (struct tsf_preset*)TSF_MALLOC(res->presetNum * sizeof(struct tsf_preset));
-		res->fontSamples = fontSamples;
+		res->fontSamplesFile = fontSamplesFile;
+		res->fontSamplesOffset = fontSamplesOffset;
 		res->fontSampleCount = fontSampleCount;
 		res->outSampleRate = 44100.0f;
-		fontSamples = TSF_NULL; //don't free below
 		tsf_load_presets(res, &hydra);
 	}
 	TSF_FREE(hydra.phdrs); TSF_FREE(hydra.pbags); TSF_FREE(hydra.pmods);
 	TSF_FREE(hydra.pgens); TSF_FREE(hydra.insts); TSF_FREE(hydra.ibags);
 	TSF_FREE(hydra.imods); TSF_FREE(hydra.igens); TSF_FREE(hydra.shdrs);
-	TSF_FREE(fontSamples);
 	return res;
 }
 
@@ -1087,7 +1147,6 @@ TSFDEF void tsf_close(tsf* f)
 	for (preset = f->presets, presetEnd = preset + f->presetNum; preset != presetEnd; preset++)
 		TSF_FREE(preset->regions);
 	TSF_FREE(f->presets);
-	TSF_FREE(f->fontSamples);
 	TSF_FREE(f->voices);
 	TSF_FREE(f->outputSamples);
 	TSF_FREE(f);
