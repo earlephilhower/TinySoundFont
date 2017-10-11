@@ -296,7 +296,7 @@ struct tsf_hydra
 //	struct tsf_hydra_pbag *pbags;
 //	struct tsf_hydra_pmod *pmods;
 //	struct tsf_hydra_pgen *pgens;
-	struct tsf_hydra_inst *insts;
+//	struct tsf_hydra_inst *insts;
 	struct tsf_hydra_ibag *ibags;
 	struct tsf_hydra_imod *imods;
 	struct tsf_hydra_igen *igens;
@@ -574,8 +574,10 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 			{
 				if (pgen.genOper != GenInstrument) continue;
 				if (pgen.genAmount.wordAmount >= hydra->instNum) continue;
-				pinst = hydra->insts + pgen.genAmount.wordAmount;
-				for (pibag = hydra->ibags + pinst->instBagNdx, pibagEnd = hydra->ibags + pinst[1].instBagNdx; pibag != pibagEnd; pibag++)
+				struct tsf_hydra_inst inst, instNext;
+				get_inst(hydra, pgen.genAmount.wordAmount, &inst);
+				get_inst(hydra, pgen.genAmount.wordAmount+1, &instNext);
+				for (pibag = hydra->ibags + inst.instBagNdx, pibagEnd = hydra->ibags + instNext.instBagNdx; pibag != pibagEnd; pibag++)
 					for (pigen = hydra->igens + pibag->instGenNdx, pigenEnd = hydra->igens + pibag[1].instGenNdx; pigen != pigenEnd; pigen++)
 						if (pigen->genOper == GenSampleID)
 							preset->regionNum++;
@@ -616,8 +618,10 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 					instRegion.lovel = presetRegion.lovel;
 					instRegion.hivel = presetRegion.hivel;
 
-					pinst = &hydra->insts[whichInst];
-					for (pibag = hydra->ibags + pinst->instBagNdx, pibagEnd = hydra->ibags + pinst[1].instBagNdx; pibag != pibagEnd; pibag++)
+					struct tsf_hydra_inst inst, instNext;
+					get_inst(hydra, whichInst, &inst);
+					get_inst(hydra, whichInst + 1, &instNext);
+					for (pibag = hydra->ibags + inst.instBagNdx, pibagEnd = hydra->ibags + instNext.instBagNdx; pibag != pibagEnd; pibag++)
 					{
 						// Generators.
 						struct tsf_region zoneRegion = instRegion;
@@ -700,7 +704,7 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 						}
 
 						// Handle instrument's global zone.
-						if (pibag == hydra->ibags + pinst->instBagNdx && !hadSampleID)
+						if (pibag == hydra->ibags + inst.instBagNdx && !hadSampleID)
 							instRegion = zoneRegion;
 
 						// Modulators (TODO)
@@ -1169,7 +1173,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 				else if GetChunkOffset(pbag)
 				else if GetChunkOffset(pmod)
 				else if GetChunkOffset(pgen)
-				else if HandleChunk(inst)
+				else if GetChunkOffset(inst)
 				else if HandleChunk(ibag)
 				else if HandleChunk(imod)
 				else if HandleChunk(igen)
@@ -1202,7 +1206,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		}
 		else stream->skip(stream->data, chunkList.size);
 	}
-	if (!hydra.phdrNum || !hydra.pbagNum || !hydra.pmodNum || !hydra.pgenNum || !hydra.insts || !hydra.ibags || !hydra.imods || !hydra.igens || !hydra.shdrs)
+	if (!hydra.phdrNum || !hydra.pbagNum || !hydra.pmodNum || !hydra.pgenNum || !hydra.instNum || !hydra.ibags || !hydra.imods || !hydra.igens || !hydra.shdrs)
 	{
 		//if (e) *e = TSF_INVALID_INCOMPLETE;
 	}
@@ -1226,7 +1230,8 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 	//TSF_FREE(hydra.pbags);
 	//TSF_FREE(hydra.pmods);
 	//TSF_FREE(hydra.pgens);
-	TSF_FREE(hydra.insts); TSF_FREE(hydra.ibags);
+	//TSF_FREE(hydra.insts);
+	TSF_FREE(hydra.ibags);
 	TSF_FREE(hydra.imods); TSF_FREE(hydra.igens); TSF_FREE(hydra.shdrs);
 	return res;
 }
