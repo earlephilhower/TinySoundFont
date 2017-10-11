@@ -298,7 +298,7 @@ struct tsf_hydra
 //	struct tsf_hydra_pgen *pgens;
 //	struct tsf_hydra_inst *insts;
 //	struct tsf_hydra_ibag *ibags;
-	struct tsf_hydra_imod *imods;
+//	struct tsf_hydra_imod *imods;
 	struct tsf_hydra_igen *igens;
 	struct tsf_hydra_shdr *shdrs;
 	struct tsf_stream *stream;
@@ -1185,7 +1185,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 				else if GetChunkOffset(pgen)
 				else if GetChunkOffset(inst)
 				else if GetChunkOffset(ibag)
-				else if HandleChunk(imod)
+				else if GetChunkOffset(imod)
 				else if HandleChunk(igen)
 				else if HandleChunk(shdr)
 /*
@@ -1216,7 +1216,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		}
 		else stream->skip(stream->data, chunkList.size);
 	}
-	if (!hydra.phdrNum || !hydra.pbagNum || !hydra.pmodNum || !hydra.pgenNum || !hydra.instNum || !hydra.ibagNum || !hydra.imods || !hydra.igens || !hydra.shdrs)
+	if (!hydra.phdrNum || !hydra.pbagNum || !hydra.pmodNum || !hydra.pgenNum || !hydra.instNum || !hydra.ibagNum || !hydra.imodNum || !hydra.igens || !hydra.shdrs)
 	{
 		//if (e) *e = TSF_INVALID_INCOMPLETE;
 	}
@@ -1242,7 +1242,8 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 	//TSF_FREE(hydra.pgens);
 	//TSF_FREE(hydra.insts);
 	//TSF_FREE(hydra.ibags);
-	TSF_FREE(hydra.imods); TSF_FREE(hydra.igens); TSF_FREE(hydra.shdrs);
+	//TSF_FREE(hydra.imods);
+	TSF_FREE(hydra.igens); TSF_FREE(hydra.shdrs);
 	return res;
 }
 
