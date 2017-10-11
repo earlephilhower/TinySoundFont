@@ -243,6 +243,8 @@ struct tsf
 
 	float* outputSamples;
 	int outputSampleSize;
+
+	struct tsf_hydra *hydra;
 };
 
 #ifndef TSF_NO_STDIO
@@ -311,11 +313,11 @@ struct tsf_hydra_shdr { tsf_char20 sampleName; tsf_u32 start, end, startLoop, en
 #define TSFR(FIELD) stream->read(stream->data, &i->FIELD, sizeof(i->FIELD));
 static void tsf_hydra_read_phdr(struct tsf_hydra_phdr* i, struct tsf_stream* stream) { TSFR(presetName) TSFR(preset) TSFR(bank) TSFR(presetBagNdx) TSFR(library) TSFR(genre) TSFR(morphology) }
 static void tsf_hydra_read_pbag(struct tsf_hydra_pbag* i, struct tsf_stream* stream) { TSFR(genNdx) TSFR(modNdx) }
-static void tsf_hydra_read_pmod(struct tsf_hydra_pmod* i, struct tsf_stream* stream) { TSFR(modSrcOper) TSFR(modDestOper) TSFR(modAmount) TSFR(modAmtSrcOper) TSFR(modTransOper) }
+//static void tsf_hydra_read_pmod(struct tsf_hydra_pmod* i, struct tsf_stream* stream) { TSFR(modSrcOper) TSFR(modDestOper) TSFR(modAmount) TSFR(modAmtSrcOper) TSFR(modTransOper) }
 static void tsf_hydra_read_pgen(struct tsf_hydra_pgen* i, struct tsf_stream* stream) { TSFR(genOper) TSFR(genAmount) }
 static void tsf_hydra_read_inst(struct tsf_hydra_inst* i, struct tsf_stream* stream) { TSFR(instName) TSFR(instBagNdx) }
 static void tsf_hydra_read_ibag(struct tsf_hydra_ibag* i, struct tsf_stream* stream) { TSFR(instGenNdx) TSFR(instModNdx) }
-static void tsf_hydra_read_imod(struct tsf_hydra_imod* i, struct tsf_stream* stream) { TSFR(modSrcOper) TSFR(modDestOper) TSFR(modAmount) TSFR(modAmtSrcOper) TSFR(modTransOper) }
+//static void tsf_hydra_read_imod(struct tsf_hydra_imod* i, struct tsf_stream* stream) { TSFR(modSrcOper) TSFR(modDestOper) TSFR(modAmount) TSFR(modAmtSrcOper) TSFR(modTransOper) }
 static void tsf_hydra_read_igen(struct tsf_hydra_igen* i, struct tsf_stream* stream) { TSFR(genOper) TSFR(genAmount) }
 static void tsf_hydra_read_shdr(struct tsf_hydra_shdr* i, struct tsf_stream* stream) { TSFR(sampleName) TSFR(start) TSFR(end) TSFR(startLoop) TSFR(endLoop) TSFR(sampleRate) TSFR(originalPitch) TSFR(pitchCorrection) TSFR(sampleLink) TSFR(sampleType) }
 #undef TSFR
@@ -337,11 +339,11 @@ static struct tsf_hydra_##TYPE *get_##TYPE(struct tsf_hydra *t, int idx, struct 
 
 GET(phdr)
 GET(pbag)
-GET(pmod)
+//GET(pmod)
 GET(pgen)
 GET(inst)
 GET(ibag)
-GET(imod)
+//GET(imod)
 GET(igen)
 GET(shdr)
 
@@ -515,7 +517,7 @@ static void tsf_region_envtosecs(struct tsf_envelope* p, TSF_BOOL sustainIsGain)
 	else p->sustain = p->sustain / 10.0f;
 }
 
-static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
+static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 {
 	enum { GenInstrument = 41, GenSampleID = 53 };
 	// Read each preset.
@@ -523,7 +525,7 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 	struct tsf_hydra_phdr phdr;
 	int phdrIdx, phdrMaxIdx;
 	//for (pphdr = hydra->phdrs, pphdrMax = pphdr + hydra->phdrNum - 1; pphdr != pphdrMax; pphdr++)
-	for (phdrIdx = 0, get_phdr(hydra, phdrIdx, &phdr), phdrMaxIdx = hydra->phdrNum - 1; phdrIdx != phdrMaxIdx; phdrIdx++, get_phdr(hydra, phdrIdx, &phdr))
+	for (phdrIdx = presetToLoad, get_phdr(hydra, phdrIdx, &phdr), phdrMaxIdx = presetToLoad + 1 /*hydra->phdrNum - 1*/; phdrIdx != phdrMaxIdx; phdrIdx++, get_phdr(hydra, phdrIdx, &phdr))
 	{
 		int sortedIndex = 0, region_index = 0;
 		//struct tsf_hydra_phdr *otherphdr;
@@ -556,7 +558,7 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 		int pbagIdx, pbagEndIdx;
 		for (pbagIdx = phdr.presetBagNdx, get_pbag(hydra, pbagIdx, &pbag), pbagEndIdx = phdrNext.presetBagNdx; pbagIdx != pbagEndIdx; pbagIdx++, get_pbag(hydra, pbagIdx, &pbag))
 		{
-			struct tsf_hydra_pgen *ppgen, *ppgenEnd; struct tsf_hydra_inst *pinst; struct tsf_hydra_ibag *pibag, *pibagEnd; struct tsf_hydra_igen *pigen, *pigenEnd;
+//			struct tsf_hydra_pgen *ppgen, *ppgenEnd; struct tsf_hydra_inst *pinst; struct tsf_hydra_ibag *pibag, *pibagEnd; struct tsf_hydra_igen *pigen, *pigenEnd;
 			struct tsf_hydra_pbag pbagNext;
 			get_pbag(hydra, pbagIdx + 1, &pbagNext);
 			struct tsf_hydra_pgen pgen;
@@ -589,7 +591,7 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 		//*** TODO: Handle global zone (modulators only).
 		for (pbagIdx = phdr.presetBagNdx, get_pbag(hydra, pbagIdx, &pbag), pbagEndIdx = phdrNext.presetBagNdx; pbagIdx != pbagEndIdx; pbagIdx++, get_pbag(hydra, pbagIdx, &pbag))
 		{
-			struct tsf_hydra_pgen *ppgen, *ppgenEnd; struct tsf_hydra_inst *pinst; struct tsf_hydra_ibag *pibag, *pibagEnd; struct tsf_hydra_igen *pigen, *pigenEnd;
+//			struct tsf_hydra_pgen *ppgen, *ppgenEnd; struct tsf_hydra_inst *pinst; struct tsf_hydra_ibag *pibag, *pibagEnd; struct tsf_hydra_igen *pigen, *pigenEnd;
 			struct tsf_region presetRegion;
 			tsf_region_clear(&presetRegion, TSF_TRUE);
 			struct tsf_hydra_pbag pbagNext;
@@ -1216,11 +1218,17 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		TSF_MEMSET(res, 0, sizeof(tsf));
 		res->presetNum = hydra.phdrNum - 1;
 		res->presets = (struct tsf_preset*)TSF_MALLOC(res->presetNum * sizeof(struct tsf_preset));
+		TSF_MEMSET(res->presets, 0, res->presetNum * sizeof(struct tsf_preset));
 		res->fontSamplesFile = fontSamplesFile;
 		res->fontSamplesOffset = fontSamplesOffset;
 		res->fontSampleCount = fontSampleCount;
 		res->outSampleRate = 44100.0f;
-		tsf_load_presets(res, &hydra);
+		res->hydra = (struct tsf_hydra*)TSF_MALLOC(sizeof(struct tsf_hydra));
+		memcpy(res->hydra, &hydra, sizeof(*res->hydra));
+		res->hydra->stream = (struct tsf_stream*)TSF_MALLOC(sizeof(struct tsf_stream));
+		memcpy(res->hydra->stream, stream, sizeof(*res->hydra->stream));
+//		tsf_load_presets(res, &hydra);
+		tsf_load_preset(res, res->hydra, 0);
 	}
 	return res;
 }
@@ -1234,6 +1242,7 @@ TSFDEF void tsf_close(tsf* f)
 	TSF_FREE(f->presets);
 	TSF_FREE(f->voices);
 	TSF_FREE(f->outputSamples);
+	TSF_FREE(f->hydra);
 	TSF_FREE(f);
 }
 
@@ -1244,6 +1253,7 @@ TSFDEF int tsf_get_presetcount(tsf* f)
 
 TSFDEF const char* tsf_get_presetname(tsf* f, int preset)
 {
+	if (f->presets[preset].regions == NULL && preset >= 0 && preset < f->presetNum) tsf_load_preset(f, f->hydra, preset);
 	return (preset < 0 || preset >= f->presetNum ? TSF_NULL : f->presets[preset].presetName);
 }
 
@@ -1261,6 +1271,7 @@ TSFDEF void tsf_note_on(tsf* f, int preset, int key, float vel)
 	struct tsf_voice *v, *vEnd; struct tsf_region *region, *regionEnd;
 
 	if (preset < 0 || preset >= f->presetNum) return;
+	if (f->presets[preset].regions == NULL) tsf_load_preset(f, f->hydra, preset);
 
 	// Are any grouped notes playing? (Needed for group stopping) Also stop any voices still playing this note.
 	for (v = f->voices, vEnd = v + f->voiceNum; v != vEnd; v++)
