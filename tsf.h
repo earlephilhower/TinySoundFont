@@ -293,7 +293,7 @@ enum { TSF_SEGMENT_NONE, TSF_SEGMENT_DELAY, TSF_SEGMENT_ATTACK, TSF_SEGMENT_HOLD
 struct tsf_hydra
 {
 //	struct tsf_hydra_phdr *phdrs;
-	struct tsf_hydra_pbag *pbags;
+//	struct tsf_hydra_pbag *pbags;
 	struct tsf_hydra_pmod *pmods;
 	struct tsf_hydra_pgen *pgens;
 	struct tsf_hydra_inst *insts;
@@ -539,7 +539,7 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 		struct tsf_hydra_phdr otherPhdr;
 		int otherPhdrIdx;
 		struct tsf_preset* preset;
-		struct tsf_hydra_pbag *ppbag, *ppbagEnd;
+		//struct tsf_hydra_pbag *ppbag, *ppbagEnd;
 		/*for (otherphdr = hydra->phdrs; otherphdr != pphdrMax; otherphdr++)*/
 		for (otherPhdrIdx = 0, get_phdr(hydra, otherPhdrIdx, &otherPhdr); otherPhdrIdx != phdrMaxIdx; otherPhdrIdx++, get_phdr(hydra, otherPhdrIdx, &otherPhdr))
 		{
@@ -561,10 +561,14 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 		get_phdr(hydra, phdrIdx + 1, &phdrNext);
 
 		//count regions covered by this preset
-		for (ppbag = hydra->pbags + phdr.presetBagNdx, ppbagEnd = hydra->pbags + phdrNext.presetBagNdx; ppbag != ppbagEnd; ppbag++)
+		struct tsf_hydra_pbag pbag;
+		int pbagIdx, pbagEndIdx;
+		for (pbagIdx = phdr.presetBagNdx, get_pbag(hydra, pbagIdx, &pbag), pbagEndIdx = phdrNext.presetBagNdx; pbagIdx != pbagEndIdx; pbagIdx++, get_pbag(hydra, pbagIdx, &pbag))
 		{
 			struct tsf_hydra_pgen *ppgen, *ppgenEnd; struct tsf_hydra_inst *pinst; struct tsf_hydra_ibag *pibag, *pibagEnd; struct tsf_hydra_igen *pigen, *pigenEnd;
-			for (ppgen = hydra->pgens + ppbag->genNdx, ppgenEnd = hydra->pgens + ppbag[1].genNdx; ppgen != ppgenEnd; ppgen++)
+			struct tsf_hydra_pbag pbagNext;
+			get_pbag(hydra, pbagIdx + 1, &pbagNext);
+			for (ppgen = hydra->pgens + pbag.genNdx, ppgenEnd = hydra->pgens + pbagNext.genNdx; ppgen != ppgenEnd; ppgen++)
 			{
 				if (ppgen->genOper != GenInstrument) continue;
 				if (ppgen->genAmount.wordAmount >= hydra->instNum) continue;
@@ -580,14 +584,16 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 
 		// Zones.
 		//*** TODO: Handle global zone (modulators only).
-		for (ppbag = hydra->pbags + phdr.presetBagNdx, ppbagEnd = hydra->pbags + phdrNext.presetBagNdx; ppbag != ppbagEnd; ppbag++)
+		for (pbagIdx = phdr.presetBagNdx, get_pbag(hydra, pbagIdx, &pbag), pbagEndIdx = phdrNext.presetBagNdx; pbagIdx != pbagEndIdx; pbagIdx++, get_pbag(hydra, pbagIdx, &pbag))
 		{
 			struct tsf_hydra_pgen *ppgen, *ppgenEnd; struct tsf_hydra_inst *pinst; struct tsf_hydra_ibag *pibag, *pibagEnd; struct tsf_hydra_igen *pigen, *pigenEnd;
 			struct tsf_region presetRegion;
 			tsf_region_clear(&presetRegion, TSF_TRUE);
+			struct tsf_hydra_pbag pbagNext;
+			get_pbag(hydra, pbagIdx + 1, &pbagNext);
 
 			// Generators.
-			for (ppgen = hydra->pgens + ppbag->genNdx, ppgenEnd = hydra->pgens + ppbag[1].genNdx; ppgen != ppgenEnd; ppgen++)
+			for (ppgen = hydra->pgens + pbag.genNdx, ppgenEnd = hydra->pgens + pbagNext.genNdx; ppgen != ppgenEnd; ppgen++)
 			{
 				// Instrument.
 				if (ppgen->genOper == GenInstrument)
@@ -1156,7 +1162,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 						printf("GetChunkOffset(%s) = %d\n", #chunkName, num); \
 					}
 				if      GetChunkOffset(phdr)
-				else if HandleChunk(pbag)
+				else if GetChunkOffset(pbag)
 				else if HandleChunk(pmod)
 				else if HandleChunk(pgen)
 				else if HandleChunk(inst)
@@ -1192,7 +1198,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		}
 		else stream->skip(stream->data, chunkList.size);
 	}
-	if (!hydra.phdrNum || !hydra.pbags || !hydra.pmods || !hydra.pgens || !hydra.insts || !hydra.ibags || !hydra.imods || !hydra.igens || !hydra.shdrs)
+	if (!hydra.phdrNum || !hydra.pbagNum || !hydra.pmods || !hydra.pgens || !hydra.insts || !hydra.ibags || !hydra.imods || !hydra.igens || !hydra.shdrs)
 	{
 		//if (e) *e = TSF_INVALID_INCOMPLETE;
 	}
@@ -1213,7 +1219,8 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		tsf_load_presets(res, &hydra);
 	}
 	//TSF_FREE(hydra.phdrs);
-	TSF_FREE(hydra.pbags); TSF_FREE(hydra.pmods);
+	//TSF_FREE(hydra.pbags);
+	TSF_FREE(hydra.pmods);
 	TSF_FREE(hydra.pgens); TSF_FREE(hydra.insts); TSF_FREE(hydra.ibags);
 	TSF_FREE(hydra.imods); TSF_FREE(hydra.igens); TSF_FREE(hydra.shdrs);
 	return res;
