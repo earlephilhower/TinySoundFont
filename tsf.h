@@ -1,3 +1,4 @@
+#include <stdio.h>
 /* TinySoundFont - v0.7 - SoundFont2 synthesizer - https://github.com/schellingb/TinySoundFont
                                      no warranty implied; use at your own risk
    Do this:
@@ -84,7 +85,13 @@ struct tsf_stream
 	int (*read)(void* data, void* ptr, unsigned int size);
 
 	// Function pointer will be called to skip ahead over 'count' bytes
+	int (*tell)(void* data);
+
+	// Function pointer will be called to skip ahead over 'count' bytes
 	int (*skip)(void* data, unsigned int count);
+
+	// Function pointer will be called to seek to absolute position
+	int (*seek)(void* data, unsigned int pos);
 };
 
 // Generic SoundFont loading method using the stream structure above
@@ -160,12 +167,16 @@ TSFDEF void tsf_render_float(tsf* f, float* buffer, int samples, int flag_mixing
 
 // Grace release time for quick voice off (avoid clicking noise)
 #define TSF_FASTRELEASETIME 0.01f
-
 #if !defined(TSF_MALLOC) || !defined(TSF_FREE) || !defined(TSF_REALLOC)
 #  include <stdlib.h>
-#  define TSF_MALLOC  malloc
+#  define TSF_MALLOC(x)  earlealloc(__LINE__,x)
 #  define TSF_FREE    free
 #  define TSF_REALLOC realloc
+void *earlealloc(int line, size_t t)
+{
+	printf("line %d: %ld bytes\n", line, t);
+	return (void*)malloc(t);
+}
 #endif
 
 #if !defined(TSF_MEMCPY) || !defined(TSF_MEMSET)
@@ -236,11 +247,13 @@ struct tsf
 
 #ifndef TSF_NO_STDIO
 static int tsf_stream_stdio_read(FILE* f, void* ptr, unsigned int size) { return (int)fread(ptr, 1, size, f); }
+static int tsf_stream_stdio_tell(FILE* f) { return ftell(f); }
 static int tsf_stream_stdio_skip(FILE* f, unsigned int count) { return !fseek(f, count, SEEK_CUR); }
+static int tsf_stream_stdio_seek(FILE* f, unsigned int count) { return !fseek(f, count, SEEK_SET); }
 TSFDEF tsf* tsf_load_filename(const char* filename)
 {
 	tsf* res;
-	struct tsf_stream stream = { TSF_NULL, (int(*)(void*,void*,unsigned int))&tsf_stream_stdio_read, (int(*)(void*,unsigned int))&tsf_stream_stdio_skip };
+	struct tsf_stream stream = { TSF_NULL, (int(*)(void*,void*,unsigned int))&tsf_stream_stdio_read, (int(*)(void*))&tsf_stream_stdio_tell, (int(*)(void*,unsigned int))&tsf_stream_stdio_skip, (int(*)(void*,unsigned int))&tsf_stream_stdio_seek };
 	#if __STDC_WANT_SECURE_LIB__
 	FILE* f = TSF_NULL; fopen_s(&f, filename, "rb");
 	#else
@@ -260,10 +273,12 @@ TSFDEF tsf* tsf_load_filename(const char* filename)
 
 struct tsf_stream_memory { const char* buffer; unsigned int total, pos; };
 static int tsf_stream_memory_read(struct tsf_stream_memory* m, void* ptr, unsigned int size) { if (size > m->total - m->pos) size = m->total - m->pos; TSF_MEMCPY(ptr, m->buffer+m->pos, size); m->pos += size; return size; }
+static int tsf_stream_memory_tell(struct tsf_stream_memory* m) { return m->pos; }
 static int tsf_stream_memory_skip(struct tsf_stream_memory* m, unsigned int count) { if (m->pos + count > m->total) return 0; m->pos += count; return 1; }
+static int tsf_stream_memory_seek(struct tsf_stream_memory* m, unsigned int pos) { if (pos > m->total) return 0; else m->pos = pos; return 1; }
 TSFDEF tsf* tsf_load_memory(const void* buffer, int size)
 {
-	struct tsf_stream stream = { TSF_NULL, (int(*)(void*,void*,unsigned int))&tsf_stream_memory_read, (int(*)(void*,unsigned int))&tsf_stream_memory_skip };
+	struct tsf_stream stream = { TSF_NULL, (int(*)(void*,void*,unsigned int))&tsf_stream_memory_read, (int(*)(void*))&tsf_stream_memory_tell, (int(*)(void*,unsigned int))&tsf_stream_memory_skip, (int(*)(void*,unsigned int))&tsf_stream_memory_seek };
 	struct tsf_stream_memory f = { 0, 0, 0 };
 	f.buffer = (const char*)buffer;
 	f.total = size;
@@ -277,9 +292,17 @@ enum { TSF_SEGMENT_NONE, TSF_SEGMENT_DELAY, TSF_SEGMENT_ATTACK, TSF_SEGMENT_HOLD
 
 struct tsf_hydra
 {
-	struct tsf_hydra_phdr *phdrs; struct tsf_hydra_pbag *pbags; struct tsf_hydra_pmod *pmods;
-	struct tsf_hydra_pgen *pgens; struct tsf_hydra_inst *insts; struct tsf_hydra_ibag *ibags;
-	struct tsf_hydra_imod *imods; struct tsf_hydra_igen *igens; struct tsf_hydra_shdr *shdrs;
+//	struct tsf_hydra_phdr *phdrs;
+	struct tsf_hydra_pbag *pbags;
+	struct tsf_hydra_pmod *pmods;
+	struct tsf_hydra_pgen *pgens;
+	struct tsf_hydra_inst *insts;
+	struct tsf_hydra_ibag *ibags;
+	struct tsf_hydra_imod *imods;
+	struct tsf_hydra_igen *igens;
+	struct tsf_hydra_shdr *shdrs;
+	struct tsf_stream *stream;
+	int phdrOffset, pbagOffset, pmodOffset, pgenOffset, instOffset, ibagOffset, imodOffset, igenOffset, shdrOffset;
 	int phdrNum, pbagNum, pmodNum, pgenNum, instNum, ibagNum, imodNum, igenNum, shdrNum;
 };
 
@@ -305,6 +328,31 @@ static void tsf_hydra_read_imod(struct tsf_hydra_imod* i, struct tsf_stream* str
 static void tsf_hydra_read_igen(struct tsf_hydra_igen* i, struct tsf_stream* stream) { TSFR(genOper) TSFR(genAmount) }
 static void tsf_hydra_read_shdr(struct tsf_hydra_shdr* i, struct tsf_stream* stream) { TSFR(sampleName) TSFR(start) TSFR(end) TSFR(startLoop) TSFR(endLoop) TSFR(sampleRate) TSFR(originalPitch) TSFR(pitchCorrection) TSFR(sampleLink) TSFR(sampleType) }
 #undef TSFR
+enum
+{
+	phdrSizeInFile = 38, pbagSizeInFile =  4, pmodSizeInFile = 10,
+	pgenSizeInFile =  4, instSizeInFile = 22, ibagSizeInFile =  4,
+	imodSizeInFile = 10, igenSizeInFile =  4, shdrSizeInFile = 46
+};
+
+#define GET(TYPE) \
+static struct tsf_hydra_##TYPE *get_##TYPE(struct tsf_hydra *t, int idx, struct tsf_hydra_##TYPE *data) \
+{ \
+	printf("get_%s(%d)\n", #TYPE, idx); \
+	t->stream->seek(t->stream->data, t->TYPE##Offset + TYPE##SizeInFile * idx); \
+	tsf_hydra_read_##TYPE(data, t->stream); \
+	return data; \
+}
+
+GET(phdr)
+GET(pbag)
+GET(pmod)
+GET(pgen)
+GET(inst)
+GET(ibag)
+GET(imod)
+GET(igen)
+GET(shdr)
 
 struct tsf_riffchunk { tsf_fourcc id; tsf_u32 size; };
 struct tsf_envelope { float delay, start, attack, hold, decay, sustain, release, keynumToHold, keynumToDecay; };
@@ -480,31 +528,40 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 {
 	enum { GenInstrument = 41, GenSampleID = 53 };
 	// Read each preset.
-	struct tsf_hydra_phdr *pphdr, *pphdrMax;
-	for (pphdr = hydra->phdrs, pphdrMax = pphdr + hydra->phdrNum - 1; pphdr != pphdrMax; pphdr++)
+	//struct tsf_hydra_phdr *pphdr, *pphdrMax;
+	struct tsf_hydra_phdr phdr;
+	int phdrIdx, phdrMaxIdx;
+	//for (pphdr = hydra->phdrs, pphdrMax = pphdr + hydra->phdrNum - 1; pphdr != pphdrMax; pphdr++)
+	for (phdrIdx = 0, get_phdr(hydra, phdrIdx, &phdr), phdrMaxIdx = hydra->phdrNum - 1; phdrIdx != phdrMaxIdx; phdrIdx++, get_phdr(hydra, phdrIdx, &phdr))
 	{
 		int sortedIndex = 0, region_index = 0;
-		struct tsf_hydra_phdr *otherphdr;
+		//struct tsf_hydra_phdr *otherphdr;
+		struct tsf_hydra_phdr otherPhdr;
+		int otherPhdrIdx;
 		struct tsf_preset* preset;
 		struct tsf_hydra_pbag *ppbag, *ppbagEnd;
-		for (otherphdr = hydra->phdrs; otherphdr != pphdrMax; otherphdr++)
+		/*for (otherphdr = hydra->phdrs; otherphdr != pphdrMax; otherphdr++)*/
+		for (otherPhdrIdx = 0, get_phdr(hydra, otherPhdrIdx, &otherPhdr); otherPhdrIdx != phdrMaxIdx; otherPhdrIdx++, get_phdr(hydra, otherPhdrIdx, &otherPhdr))
 		{
-			if (otherphdr == pphdr || otherphdr->bank > pphdr->bank) continue;
-			else if (otherphdr->bank < pphdr->bank) sortedIndex++;
-			else if (otherphdr->preset > pphdr->preset) continue;
-			else if (otherphdr->preset < pphdr->preset) sortedIndex++;
-			else if (otherphdr < pphdr) sortedIndex++;
+			if (otherPhdrIdx == phdrIdx || otherPhdr.bank > phdr.bank) continue;
+			else if (otherPhdr.bank < phdr.bank) sortedIndex++;
+			else if (otherPhdr.preset > phdr.preset) continue;
+			else if (otherPhdr.preset < phdr.preset) sortedIndex++;
+			else if (otherPhdrIdx < phdrIdx) sortedIndex++;
 		}
 
 		preset = &res->presets[sortedIndex];
-		TSF_MEMCPY(preset->presetName, pphdr->presetName, sizeof(preset->presetName));
+		TSF_MEMCPY(preset->presetName, phdr.presetName, sizeof(preset->presetName));
 		preset->presetName[sizeof(preset->presetName)-1] = '\0'; //should be zero terminated in source file but make sure
-		preset->bank = pphdr->bank;
-		preset->preset = pphdr->preset;
+		preset->bank = phdr.bank;
+		preset->preset = phdr.preset;
 		preset->regionNum = 0;
 
+		struct tsf_hydra_phdr phdrNext;
+		get_phdr(hydra, phdrIdx + 1, &phdrNext);
+
 		//count regions covered by this preset
-		for (ppbag = hydra->pbags + pphdr->presetBagNdx, ppbagEnd = hydra->pbags + pphdr[1].presetBagNdx; ppbag != ppbagEnd; ppbag++)
+		for (ppbag = hydra->pbags + phdr.presetBagNdx, ppbagEnd = hydra->pbags + phdrNext.presetBagNdx; ppbag != ppbagEnd; ppbag++)
 		{
 			struct tsf_hydra_pgen *ppgen, *ppgenEnd; struct tsf_hydra_inst *pinst; struct tsf_hydra_ibag *pibag, *pibagEnd; struct tsf_hydra_igen *pigen, *pigenEnd;
 			for (ppgen = hydra->pgens + ppbag->genNdx, ppgenEnd = hydra->pgens + ppbag[1].genNdx; ppgen != ppgenEnd; ppgen++)
@@ -518,12 +575,12 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 							preset->regionNum++;
 			}
 		}
-printf("preser memory usage: %ld\n", preset->regionNum * sizeof(struct tsf_region));
+
 		preset->regions = (struct tsf_region*)TSF_MALLOC(preset->regionNum * sizeof(struct tsf_region));
 
 		// Zones.
 		//*** TODO: Handle global zone (modulators only).
-		for (ppbag = hydra->pbags + pphdr->presetBagNdx, ppbagEnd = hydra->pbags + pphdr[1].presetBagNdx; ppbag != ppbagEnd; ppbag++)
+		for (ppbag = hydra->pbags + phdr.presetBagNdx, ppbagEnd = hydra->pbags + phdrNext.presetBagNdx; ppbag != ppbagEnd; ppbag++)
 		{
 			struct tsf_hydra_pgen *ppgen, *ppgenEnd; struct tsf_hydra_inst *pinst; struct tsf_hydra_ibag *pibag, *pibagEnd; struct tsf_hydra_igen *pigen, *pigenEnd;
 			struct tsf_region presetRegion;
@@ -652,7 +709,7 @@ printf("preser memory usage: %ld\n", preset->regionNum * sizeof(struct tsf_regio
 static void tsf_load_samples(FILE *file, FILE **fontSamplesFile, int *fontSamplesOffset, int* fontSampleCount, struct tsf_riffchunk *chunkSmpl, struct tsf_stream* stream)
 {
 	// Read sample data into float format buffer.
-	float* out; unsigned int samplesLeft, samplesToRead, samplesToConvert;
+	unsigned int samplesLeft;
 	samplesLeft = *fontSampleCount = chunkSmpl->size / sizeof(short);
 	*fontSamplesFile = file;
 	*fontSamplesOffset = ftell(file);
@@ -962,7 +1019,7 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 				while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
 				{
 					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
-					short s; float inputPos, inputNextPos;
+					float inputPos, inputNextPos;
 //					fseek(f->fontSamplesFile, f->fontSamplesOffset + pos * sizeof(short), SEEK_SET);
 //					fread(&s, sizeof(s), 1, f->fontSamplesFile);
 //					inputPos = (float)(s/32767.0);
@@ -991,7 +1048,7 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 				while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
 				{
 					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
-					short s; float inputPos, inputNextPos;
+					float inputPos, inputNextPos;
 //					fseek(f->fontSamplesFile, f->fontSamplesOffset + pos * sizeof(short), SEEK_SET);
 //					fread(&s, sizeof(s), 1, f->fontSamplesFile);
 //					inputPos = (float)(s/32767.0);
@@ -1020,7 +1077,7 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 				while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
 				{
 					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
-					short s; float inputPos, inputNextPos;
+					float inputPos, inputNextPos;
 //					fseek(f->fontSamplesFile, f->fontSamplesOffset + pos * sizeof(short), SEEK_SET);
 //					fread(&s, sizeof(s), 1, f->fontSamplesFile);
 //					inputPos = (float)(s/32767.0);
@@ -1074,6 +1131,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 
 	// Read hydra and locate sample data.
 	TSF_MEMSET(&hydra, 0, sizeof(hydra));
+	hydra.stream = stream;
 	while (tsf_riffchunk_read(&chunkHead, &chunkList, stream))
 	{
 		struct tsf_riffchunk chunk;
@@ -1084,19 +1142,39 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 				#define HandleChunk(chunkName) (TSF_FourCCEquals(chunk.id, #chunkName) && !(chunk.size % chunkName##SizeInFile)) \
 					{ \
 						int num = chunk.size / chunkName##SizeInFile, i; \
+						printf("allocating %d units, ", num); \
 						hydra.chunkName##Num = num; \
 						hydra.chunkName##s = (struct tsf_hydra_##chunkName*)TSF_MALLOC(num * sizeof(struct tsf_hydra_##chunkName)); \
 						for (i = 0; i < num; ++i) tsf_hydra_read_##chunkName(&hydra.chunkName##s[i], stream); \
 					}
-				enum
-				{
-					phdrSizeInFile = 38, pbagSizeInFile =  4, pmodSizeInFile = 10,
-					pgenSizeInFile =  4, instSizeInFile = 22, ibagSizeInFile =  4,
-					imodSizeInFile = 10, igenSizeInFile =  4, shdrSizeInFile = 46
-				};
-				if      HandleChunk(phdr) else if HandleChunk(pbag) else if HandleChunk(pmod)
-				else if HandleChunk(pgen) else if HandleChunk(inst) else if HandleChunk(ibag)
-				else if HandleChunk(imod) else if HandleChunk(igen) else if HandleChunk(shdr)
+				#define GetChunkOffset(chunkName) (TSF_FourCCEquals(chunk.id, #chunkName) && !(chunk.size % chunkName##SizeInFile)) \
+					{ \
+						int num = chunk.size / chunkName##SizeInFile; \
+						hydra.chunkName##Num = num; \
+						hydra.chunkName##Offset = stream->tell(stream->data); \
+						stream->skip(stream->data, num * chunkName##SizeInFile); \
+						printf("GetChunkOffset(%s) = %d\n", #chunkName, num); \
+					}
+				if      GetChunkOffset(phdr)
+				else if HandleChunk(pbag)
+				else if HandleChunk(pmod)
+				else if HandleChunk(pgen)
+				else if HandleChunk(inst)
+				else if HandleChunk(ibag)
+				else if HandleChunk(imod)
+				else if HandleChunk(igen)
+				else if HandleChunk(shdr)
+/*
+				if      HandleChunk(phdr)
+				else if HandleChunk(pbag)
+				else if HandleChunk(pmod)
+				else if HandleChunk(pgen)
+				else if HandleChunk(inst)
+				else if HandleChunk(ibag)
+				else if HandleChunk(imod)
+				else if HandleChunk(igen)
+				else if HandleChunk(shdr)
+*/
 				else stream->skip(stream->data, chunk.size);
 				#undef HandleChunk
 			}
@@ -1114,7 +1192,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		}
 		else stream->skip(stream->data, chunkList.size);
 	}
-	if (!hydra.phdrs || !hydra.pbags || !hydra.pmods || !hydra.pgens || !hydra.insts || !hydra.ibags || !hydra.imods || !hydra.igens || !hydra.shdrs)
+	if (!hydra.phdrNum || !hydra.pbags || !hydra.pmods || !hydra.pgens || !hydra.insts || !hydra.ibags || !hydra.imods || !hydra.igens || !hydra.shdrs)
 	{
 		//if (e) *e = TSF_INVALID_INCOMPLETE;
 	}
@@ -1134,7 +1212,8 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		res->outSampleRate = 44100.0f;
 		tsf_load_presets(res, &hydra);
 	}
-	TSF_FREE(hydra.phdrs); TSF_FREE(hydra.pbags); TSF_FREE(hydra.pmods);
+	//TSF_FREE(hydra.phdrs);
+	TSF_FREE(hydra.pbags); TSF_FREE(hydra.pmods);
 	TSF_FREE(hydra.pgens); TSF_FREE(hydra.insts); TSF_FREE(hydra.ibags);
 	TSF_FREE(hydra.imods); TSF_FREE(hydra.igens); TSF_FREE(hydra.shdrs);
 	return res;
