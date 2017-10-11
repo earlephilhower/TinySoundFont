@@ -299,7 +299,7 @@ struct tsf_hydra
 //	struct tsf_hydra_inst *insts;
 //	struct tsf_hydra_ibag *ibags;
 //	struct tsf_hydra_imod *imods;
-	struct tsf_hydra_igen *igens;
+//	struct tsf_hydra_igen *igens;
 	struct tsf_hydra_shdr *shdrs;
 	struct tsf_stream *stream;
 	int phdrOffset, pbagOffset, pmodOffset, pgenOffset, instOffset, ibagOffset, imodOffset, igenOffset, shdrOffset;
@@ -583,8 +583,10 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 				{
 					struct tsf_hydra_ibag ibagNext;
 					get_ibag(hydra, ibagIdx + 1, &ibagNext);
-					for (pigen = hydra->igens + ibag.instGenNdx, pigenEnd = hydra->igens + ibagNext.instGenNdx; pigen != pigenEnd; pigen++)
-						if (pigen->genOper == GenSampleID)
+					struct tsf_hydra_igen igen;
+					int igenIdx, igenEndIdx;
+					for (igenIdx = ibag.instGenNdx, get_igen(hydra, igenIdx, &igen), igenEndIdx = ibagNext.instGenNdx; igenIdx != igenEndIdx; igenIdx++, get_igen(hydra, igenIdx, &igen))
+						if (igen.genOper == GenSampleID)
 							preset->regionNum++;
 				}
 			}
@@ -636,11 +638,13 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 						int hadSampleID = 0;
 						struct tsf_hydra_ibag ibagNext;
 						get_ibag(hydra, ibagIdx + 1, &ibagNext);
-						for (pigen = hydra->igens + ibag.instGenNdx, pigenEnd = hydra->igens + ibagNext.instGenNdx; pigen != pigenEnd; pigen++)
+						struct tsf_hydra_igen igen;
+						int igenIdx, igenEndIdx;
+						for (igenIdx = ibag.instGenNdx, get_igen(hydra, igenIdx, &igen), igenEndIdx = ibagNext.instGenNdx; igenIdx != igenEndIdx; igenIdx++, get_igen(hydra, igenIdx, &igen))
 						{
-							if (pigen->genOper == GenSampleID)
+							if (igen.genOper == GenSampleID)
 							{
-								struct tsf_hydra_shdr* pshdr = &hydra->shdrs[pigen->genAmount.wordAmount];
+								struct tsf_hydra_shdr* pshdr = &hydra->shdrs[igen.genAmount.wordAmount];
 
 								//sum regions
 								zoneRegion.offset += presetRegion.offset;
@@ -710,7 +714,7 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 								region_index++;
 								hadSampleID = 1;
 							}
-							else tsf_region_operator(&zoneRegion, pigen->genOper, &pigen->genAmount);
+							else tsf_region_operator(&zoneRegion, igen.genOper, &igen.genAmount);
 						}
 
 						// Handle instrument's global zone.
@@ -1186,19 +1190,8 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 				else if GetChunkOffset(inst)
 				else if GetChunkOffset(ibag)
 				else if GetChunkOffset(imod)
-				else if HandleChunk(igen)
+				else if GetChunkOffset(igen)
 				else if HandleChunk(shdr)
-/*
-				if      HandleChunk(phdr)
-				else if HandleChunk(pbag)
-				else if HandleChunk(pmod)
-				else if HandleChunk(pgen)
-				else if HandleChunk(inst)
-				else if HandleChunk(ibag)
-				else if HandleChunk(imod)
-				else if HandleChunk(igen)
-				else if HandleChunk(shdr)
-*/
 				else stream->skip(stream->data, chunk.size);
 				#undef HandleChunk
 			}
@@ -1216,7 +1209,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		}
 		else stream->skip(stream->data, chunkList.size);
 	}
-	if (!hydra.phdrNum || !hydra.pbagNum || !hydra.pmodNum || !hydra.pgenNum || !hydra.instNum || !hydra.ibagNum || !hydra.imodNum || !hydra.igens || !hydra.shdrs)
+	if (!hydra.phdrNum || !hydra.pbagNum || !hydra.pmodNum || !hydra.pgenNum || !hydra.instNum || !hydra.ibagNum || !hydra.imodNum || !hydra.igenNum || !hydra.shdrs)
 	{
 		//if (e) *e = TSF_INVALID_INCOMPLETE;
 	}
@@ -1243,7 +1236,8 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 	//TSF_FREE(hydra.insts);
 	//TSF_FREE(hydra.ibags);
 	//TSF_FREE(hydra.imods);
-	TSF_FREE(hydra.igens); TSF_FREE(hydra.shdrs);
+	//TSF_FREE(hydra.igens);
+	TSF_FREE(hydra.shdrs);
 	return res;
 }
 
