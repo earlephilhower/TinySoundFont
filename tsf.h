@@ -292,15 +292,6 @@ enum { TSF_SEGMENT_NONE, TSF_SEGMENT_DELAY, TSF_SEGMENT_ATTACK, TSF_SEGMENT_HOLD
 
 struct tsf_hydra
 {
-//	struct tsf_hydra_phdr *phdrs;
-//	struct tsf_hydra_pbag *pbags;
-//	struct tsf_hydra_pmod *pmods;
-//	struct tsf_hydra_pgen *pgens;
-//	struct tsf_hydra_inst *insts;
-//	struct tsf_hydra_ibag *ibags;
-//	struct tsf_hydra_imod *imods;
-//	struct tsf_hydra_igen *igens;
-	struct tsf_hydra_shdr *shdrs;
 	struct tsf_stream *stream;
 	int phdrOffset, pbagOffset, pmodOffset, pgenOffset, instOffset, ibagOffset, imodOffset, igenOffset, shdrOffset;
 	int phdrNum, pbagNum, pmodNum, pgenNum, instNum, ibagNum, imodNum, igenNum, shdrNum;
@@ -644,7 +635,9 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 						{
 							if (igen.genOper == GenSampleID)
 							{
-								struct tsf_hydra_shdr* pshdr = &hydra->shdrs[igen.genAmount.wordAmount];
+								//struct tsf_hydra_shdr* pshdr = &hydra->shdrs[igen.genAmount.wordAmount];
+								struct tsf_hydra_shdr shdr;
+								get_shdr(hydra, igen.genAmount.wordAmount, &shdr);
 
 								//sum regions
 								zoneRegion.offset += presetRegion.offset;
@@ -694,13 +687,13 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 								else if (zoneRegion.pan > 100.0f) zoneRegion.pan = 100.0f;
 								if (zoneRegion.initialFilterQ < 1500 || zoneRegion.initialFilterQ > 13500) zoneRegion.initialFilterQ = 0;
 
-								zoneRegion.offset += pshdr->start;
-								zoneRegion.end += pshdr->end;
-								zoneRegion.loop_start += pshdr->startLoop;
-								zoneRegion.loop_end += pshdr->endLoop;
-								if (pshdr->endLoop > 0) zoneRegion.loop_end -= 1;
-								if (zoneRegion.pitch_keycenter == -1) zoneRegion.pitch_keycenter = pshdr->originalPitch;
-								zoneRegion.tune += pshdr->pitchCorrection;
+								zoneRegion.offset += shdr.start;
+								zoneRegion.end += shdr.end;
+								zoneRegion.loop_start += shdr.startLoop;
+								zoneRegion.loop_end += shdr.endLoop;
+								if (shdr.endLoop > 0) zoneRegion.loop_end -= 1;
+								if (zoneRegion.pitch_keycenter == -1) zoneRegion.pitch_keycenter = shdr.originalPitch;
+								zoneRegion.tune += shdr.pitchCorrection;
 
 								// Pin initialAttenuation to max +6dB.
 								if (zoneRegion.volume > 6.0f)
@@ -710,7 +703,7 @@ static void tsf_load_presets(tsf* res, struct tsf_hydra *hydra)
 								}
 
 								preset->regions[region_index] = zoneRegion;
-								preset->regions[region_index].sample_rate = pshdr->sampleRate;
+								preset->regions[region_index].sample_rate = shdr.sampleRate;
 								region_index++;
 								hadSampleID = 1;
 							}
@@ -1191,7 +1184,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 				else if GetChunkOffset(ibag)
 				else if GetChunkOffset(imod)
 				else if GetChunkOffset(igen)
-				else if HandleChunk(shdr)
+				else if GetChunkOffset(shdr)
 				else stream->skip(stream->data, chunk.size);
 				#undef HandleChunk
 			}
@@ -1209,7 +1202,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		}
 		else stream->skip(stream->data, chunkList.size);
 	}
-	if (!hydra.phdrNum || !hydra.pbagNum || !hydra.pmodNum || !hydra.pgenNum || !hydra.instNum || !hydra.ibagNum || !hydra.imodNum || !hydra.igenNum || !hydra.shdrs)
+	if (!hydra.phdrNum || !hydra.pbagNum || !hydra.pmodNum || !hydra.pgenNum || !hydra.instNum || !hydra.ibagNum || !hydra.imodNum || !hydra.igenNum || !hydra.shdrNum)
 	{
 		//if (e) *e = TSF_INVALID_INCOMPLETE;
 	}
@@ -1229,15 +1222,6 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		res->outSampleRate = 44100.0f;
 		tsf_load_presets(res, &hydra);
 	}
-	//TSF_FREE(hydra.phdrs);
-	//TSF_FREE(hydra.pbags);
-	//TSF_FREE(hydra.pmods);
-	//TSF_FREE(hydra.pgens);
-	//TSF_FREE(hydra.insts);
-	//TSF_FREE(hydra.ibags);
-	//TSF_FREE(hydra.imods);
-	//TSF_FREE(hydra.igens);
-	TSF_FREE(hydra.shdrs);
 	return res;
 }
 
