@@ -94,6 +94,9 @@ struct tsf_stream
 
 	// Function pointer will be called to skip ahead over 'count' bytes
 	int (*close)(void* data);
+	
+	// Function pointer will be called to skip ahead over 'count' bytes
+	int (*size)(void* data);
 };
 
 // Generic SoundFont loading method using the stream structure above
@@ -116,7 +119,7 @@ enum TSFOutputMode
 	// Two channels with all samples for the left channel first then right
 	TSF_STEREO_UNWEAVED,
 	// A single channel (stereo instruments are mixed into center)
-	TSF_MONO,
+	TSF_MONO
 };
 
 // Thread safety:
@@ -246,13 +249,14 @@ struct tsf
 #ifndef TSF_NO_STDIO
 static int tsf_stream_stdio_read(FILE* f, void* ptr, unsigned int size) { return (int)fread(ptr, 1, size, f); }
 static int tsf_stream_stdio_tell(FILE* f) { return ftell(f); }
+static int tsf_stream_stdio_size(FILE* f) { int p = ftell(f); fseek(f, 0, SEEK_END); int e = ftell(f); fseek(f, p, SEEK_SET); return e; }
 static int tsf_stream_stdio_skip(FILE* f, unsigned int count) { return !fseek(f, count, SEEK_CUR); }
 static int tsf_stream_stdio_seek(FILE* f, unsigned int count) { return !fseek(f, count, SEEK_SET); }
 static int tsf_stream_stdio_close(FILE* f) { return !fclose(f); }
 TSFDEF tsf* tsf_load_filename(const char* filename)
 {
 	tsf* res;
-	struct tsf_stream stream = { TSF_NULL, (int(*)(void*,void*,unsigned int))&tsf_stream_stdio_read, (int(*)(void*))&tsf_stream_stdio_tell, (int(*)(void*,unsigned int))&tsf_stream_stdio_skip, (int(*)(void*,unsigned int))&tsf_stream_stdio_seek, (int(*)(void*))&tsf_stream_stdio_close };
+	struct tsf_stream stream = { TSF_NULL, (int(*)(void*,void*,unsigned int))&tsf_stream_stdio_read, (int(*)(void*))&tsf_stream_stdio_tell, (int(*)(void*,unsigned int))&tsf_stream_stdio_skip, (int(*)(void*,unsigned int))&tsf_stream_stdio_seek, (int(*)(void*))&tsf_stream_stdio_close, (int(*)(void*))&tsf_stream_stdio_size };
 	#if __STDC_WANT_SECURE_LIB__
 	FILE* f = TSF_NULL; fopen_s(&f, filename, "rb");
 	#else
@@ -273,12 +277,13 @@ TSFDEF tsf* tsf_load_filename(const char* filename)
 struct tsf_stream_memory { const char* buffer; unsigned int total, pos; };
 static int tsf_stream_memory_read(struct tsf_stream_memory* m, void* ptr, unsigned int size) { if (size > m->total - m->pos) size = m->total - m->pos; TSF_MEMCPY(ptr, m->buffer+m->pos, size); m->pos += size; return size; }
 static int tsf_stream_memory_tell(struct tsf_stream_memory* m) { return m->pos; }
+static int tsf_stream_memory_size(struct tsf_stream_memory* m) { return m->total; }
 static int tsf_stream_memory_skip(struct tsf_stream_memory* m, unsigned int count) { if (m->pos + count > m->total) return 0; m->pos += count; return 1; }
 static int tsf_stream_memory_seek(struct tsf_stream_memory* m, unsigned int pos) { if (pos > m->total) return 0; else m->pos = pos; return 1; }
 static int tsf_stream_memory_close(struct tsf_stream_memory* m) { return 1; }
 TSFDEF tsf* tsf_load_memory(const void* buffer, int size)
 {
-	struct tsf_stream stream = { TSF_NULL, (int(*)(void*,void*,unsigned int))&tsf_stream_memory_read, (int(*)(void*))&tsf_stream_memory_tell, (int(*)(void*,unsigned int))&tsf_stream_memory_skip, (int(*)(void*,unsigned int))&tsf_stream_memory_seek, (int(*)(void*))&tsf_stream_memory_close };
+	struct tsf_stream stream = { TSF_NULL, (int(*)(void*,void*,unsigned int))&tsf_stream_memory_read, (int(*)(void*))&tsf_stream_memory_tell, (int(*)(void*,unsigned int))&tsf_stream_memory_skip, (int(*)(void*,unsigned int))&tsf_stream_memory_seek, (int(*)(void*))&tsf_stream_memory_close, (int(*)(void*))&tsf_stream_memory_size };
 	struct tsf_stream_memory f = { 0, 0, 0 };
 	f.buffer = (const char*)buffer;
 	f.total = size;
