@@ -1,4 +1,3 @@
-#include <stdio.h>
 /* TinySoundFont - v0.7 - SoundFont2 synthesizer - https://github.com/schellingb/TinySoundFont
                                      no warranty implied; use at your own risk
    Do this:
@@ -92,6 +91,9 @@ struct tsf_stream
 
 	// Function pointer will be called to seek to absolute position
 	int (*seek)(void* data, unsigned int pos);
+
+	// Function pointer will be called to skip ahead over 'count' bytes
+	int (*close)(void* data);
 };
 
 // Generic SoundFont loading method using the stream structure above
@@ -169,14 +171,9 @@ TSFDEF void tsf_render_float(tsf* f, float* buffer, int samples, int flag_mixing
 #define TSF_FASTRELEASETIME 0.01f
 #if !defined(TSF_MALLOC) || !defined(TSF_FREE) || !defined(TSF_REALLOC)
 #  include <stdlib.h>
-#  define TSF_MALLOC(x)  earlealloc(__LINE__,x)
+#  define TSF_MALLOC  malloc
 #  define TSF_FREE    free
 #  define TSF_REALLOC realloc
-void *earlealloc(int line, size_t t)
-{
-	printf("line %d: %ld bytes\n", line, t);
-	return (void*)malloc(t);
-}
 #endif
 
 #if !defined(TSF_MEMCPY) || !defined(TSF_MEMSET)
@@ -230,7 +227,6 @@ struct tsf
 	struct tsf_preset* presets;
 	int presetNum;
 
-	FILE *fontSamplesFile;
 	int fontSamplesOffset;
 	int fontSampleCount;
 
@@ -252,10 +248,11 @@ static int tsf_stream_stdio_read(FILE* f, void* ptr, unsigned int size) { return
 static int tsf_stream_stdio_tell(FILE* f) { return ftell(f); }
 static int tsf_stream_stdio_skip(FILE* f, unsigned int count) { return !fseek(f, count, SEEK_CUR); }
 static int tsf_stream_stdio_seek(FILE* f, unsigned int count) { return !fseek(f, count, SEEK_SET); }
+static int tsf_stream_stdio_close(FILE* f) { return !fclose(f); }
 TSFDEF tsf* tsf_load_filename(const char* filename)
 {
 	tsf* res;
-	struct tsf_stream stream = { TSF_NULL, (int(*)(void*,void*,unsigned int))&tsf_stream_stdio_read, (int(*)(void*))&tsf_stream_stdio_tell, (int(*)(void*,unsigned int))&tsf_stream_stdio_skip, (int(*)(void*,unsigned int))&tsf_stream_stdio_seek };
+	struct tsf_stream stream = { TSF_NULL, (int(*)(void*,void*,unsigned int))&tsf_stream_stdio_read, (int(*)(void*))&tsf_stream_stdio_tell, (int(*)(void*,unsigned int))&tsf_stream_stdio_skip, (int(*)(void*,unsigned int))&tsf_stream_stdio_seek, (int(*)(void*))&tsf_stream_stdio_close };
 	#if __STDC_WANT_SECURE_LIB__
 	FILE* f = TSF_NULL; fopen_s(&f, filename, "rb");
 	#else
@@ -278,9 +275,10 @@ static int tsf_stream_memory_read(struct tsf_stream_memory* m, void* ptr, unsign
 static int tsf_stream_memory_tell(struct tsf_stream_memory* m) { return m->pos; }
 static int tsf_stream_memory_skip(struct tsf_stream_memory* m, unsigned int count) { if (m->pos + count > m->total) return 0; m->pos += count; return 1; }
 static int tsf_stream_memory_seek(struct tsf_stream_memory* m, unsigned int pos) { if (pos > m->total) return 0; else m->pos = pos; return 1; }
+static int tsf_stream_memory_close(struct tsf_stream_memory* m) { return 1; }
 TSFDEF tsf* tsf_load_memory(const void* buffer, int size)
 {
-	struct tsf_stream stream = { TSF_NULL, (int(*)(void*,void*,unsigned int))&tsf_stream_memory_read, (int(*)(void*))&tsf_stream_memory_tell, (int(*)(void*,unsigned int))&tsf_stream_memory_skip, (int(*)(void*,unsigned int))&tsf_stream_memory_seek };
+	struct tsf_stream stream = { TSF_NULL, (int(*)(void*,void*,unsigned int))&tsf_stream_memory_read, (int(*)(void*))&tsf_stream_memory_tell, (int(*)(void*,unsigned int))&tsf_stream_memory_skip, (int(*)(void*,unsigned int))&tsf_stream_memory_seek, (int(*)(void*))&tsf_stream_memory_close };
 	struct tsf_stream_memory f = { 0, 0, 0 };
 	f.buffer = (const char*)buffer;
 	f.total = size;
@@ -328,24 +326,24 @@ enum
 	imodSizeInFile = 10, igenSizeInFile =  4, shdrSizeInFile = 46
 };
 
-#define GET(TYPE) \
+#define TGET(TYPE) \
 static struct tsf_hydra_##TYPE *get_##TYPE(struct tsf_hydra *t, int idx, struct tsf_hydra_##TYPE *data) \
 { \
-	printf("get_%s(%d)\n", #TYPE, idx); \
 	t->stream->seek(t->stream->data, t->TYPE##Offset + TYPE##SizeInFile * idx); \
 	tsf_hydra_read_##TYPE(data, t->stream); \
 	return data; \
 }
 
-GET(phdr)
-GET(pbag)
-//GET(pmod)
-GET(pgen)
-GET(inst)
-GET(ibag)
-//GET(imod)
-GET(igen)
-GET(shdr)
+TGET(phdr)
+TGET(pbag)
+//TGET(pmod)
+TGET(pgen)
+TGET(inst)
+TGET(ibag)
+//TGET(imod)
+TGET(igen)
+TGET(shdr)
+#undef TGET
 
 struct tsf_riffchunk { tsf_fourcc id; tsf_u32 size; };
 struct tsf_envelope { float delay, start, attack, hold, decay, sustain, release, keynumToHold, keynumToDecay; };
@@ -521,19 +519,14 @@ static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 {
 	enum { GenInstrument = 41, GenSampleID = 53 };
 	// Read each preset.
-	//struct tsf_hydra_phdr *pphdr, *pphdrMax;
 	struct tsf_hydra_phdr phdr;
 	int phdrIdx, phdrMaxIdx;
-	//for (pphdr = hydra->phdrs, pphdrMax = pphdr + hydra->phdrNum - 1; pphdr != pphdrMax; pphdr++)
 	for (phdrIdx = presetToLoad, get_phdr(hydra, phdrIdx, &phdr), phdrMaxIdx = presetToLoad + 1 /*hydra->phdrNum - 1*/; phdrIdx != phdrMaxIdx; phdrIdx++, get_phdr(hydra, phdrIdx, &phdr))
 	{
 		int sortedIndex = 0, region_index = 0;
-		//struct tsf_hydra_phdr *otherphdr;
 		struct tsf_hydra_phdr otherPhdr;
 		int otherPhdrIdx;
 		struct tsf_preset* preset;
-		//struct tsf_hydra_pbag *ppbag, *ppbagEnd;
-		/*for (otherphdr = hydra->phdrs; otherphdr != pphdrMax; otherphdr++)*/
 		for (otherPhdrIdx = 0, get_phdr(hydra, otherPhdrIdx, &otherPhdr); otherPhdrIdx != phdrMaxIdx; otherPhdrIdx++, get_phdr(hydra, otherPhdrIdx, &otherPhdr))
 		{
 			if (otherPhdrIdx == phdrIdx || otherPhdr.bank > phdr.bank) continue;
@@ -558,7 +551,6 @@ static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 		int pbagIdx, pbagEndIdx;
 		for (pbagIdx = phdr.presetBagNdx, get_pbag(hydra, pbagIdx, &pbag), pbagEndIdx = phdrNext.presetBagNdx; pbagIdx != pbagEndIdx; pbagIdx++, get_pbag(hydra, pbagIdx, &pbag))
 		{
-//			struct tsf_hydra_pgen *ppgen, *ppgenEnd; struct tsf_hydra_inst *pinst; struct tsf_hydra_ibag *pibag, *pibagEnd; struct tsf_hydra_igen *pigen, *pigenEnd;
 			struct tsf_hydra_pbag pbagNext;
 			get_pbag(hydra, pbagIdx + 1, &pbagNext);
 			struct tsf_hydra_pgen pgen;
@@ -591,7 +583,6 @@ static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 		//*** TODO: Handle global zone (modulators only).
 		for (pbagIdx = phdr.presetBagNdx, get_pbag(hydra, pbagIdx, &pbag), pbagEndIdx = phdrNext.presetBagNdx; pbagIdx != pbagEndIdx; pbagIdx++, get_pbag(hydra, pbagIdx, &pbag))
 		{
-//			struct tsf_hydra_pgen *ppgen, *ppgenEnd; struct tsf_hydra_inst *pinst; struct tsf_hydra_ibag *pibag, *pibagEnd; struct tsf_hydra_igen *pigen, *pigenEnd;
 			struct tsf_region presetRegion;
 			tsf_region_clear(&presetRegion, TSF_TRUE);
 			struct tsf_hydra_pbag pbagNext;
@@ -637,7 +628,6 @@ static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 						{
 							if (igen.genOper == GenSampleID)
 							{
-								//struct tsf_hydra_shdr* pshdr = &hydra->shdrs[igen.genAmount.wordAmount];
 								struct tsf_hydra_shdr shdr;
 								get_shdr(hydra, igen.genAmount.wordAmount, &shdr);
 
@@ -729,13 +719,12 @@ static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 	}
 }
 
-static void tsf_load_samples(FILE *file, FILE **fontSamplesFile, int *fontSamplesOffset, int* fontSampleCount, struct tsf_riffchunk *chunkSmpl, struct tsf_stream* stream)
+static void tsf_load_samples(int *fontSamplesOffset, int* fontSampleCount, struct tsf_riffchunk *chunkSmpl, struct tsf_stream* stream)
 {
 	// Read sample data into float format buffer.
 	unsigned int samplesLeft;
 	samplesLeft = *fontSampleCount = chunkSmpl->size / sizeof(short);
-	*fontSamplesFile = file;
-	*fontSamplesOffset = ftell(file);
+	*fontSamplesOffset = stream->tell(stream->data);
 	stream->skip(stream->data, samplesLeft * sizeof(short));
 }
 
@@ -945,7 +934,7 @@ short tsf_read_short_cached(tsf *f, int pos)
 	if ((call % 88000) ==0) printf("Hit: %d, Miss: %d, Ratio: %f\n", hits, misses, (double)hits/(double)(misses+hits));
 	if (!initted) {
 		for (int i=0; i<TSF_BUFFS; i++) {
-			buffer[i] = malloc(TSF_BUFFSIZE * sizeof(short));
+			buffer[i] = TSF_MALLOC(TSF_BUFFSIZE * sizeof(short));
 			offset[i] = 0xfffffff;
 			timestamp[i] = -1;
 		}
@@ -963,8 +952,8 @@ short tsf_read_short_cached(tsf *f, int pos)
 		if (timestamp[i] < timestamp[repl]) repl = i;
 	}
 	int readOff = pos - (pos % TSF_BUFFSIZE);
-	fseek(f->fontSamplesFile, readOff * sizeof(short), SEEK_SET);
-	fread(buffer[repl], TSF_BUFFSIZE * sizeof(short), 1, f->fontSamplesFile);
+	f->hydra->stream->seek(f->hydra->stream->data, readOff * sizeof(short));
+	f->hydra->stream->read(f->hydra->stream->data, buffer[repl], TSF_BUFFSIZE * sizeof(short));
 	timestamp[repl] = epoch++;
 	offset[repl] = readOff;
 	misses++;
@@ -1043,12 +1032,6 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 				{
 					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
 					float inputPos, inputNextPos;
-//					fseek(f->fontSamplesFile, f->fontSamplesOffset + pos * sizeof(short), SEEK_SET);
-//					fread(&s, sizeof(s), 1, f->fontSamplesFile);
-//					inputPos = (float)(s/32767.0);
-//					fseek(f->fontSamplesFile, f->fontSamplesOffset + nextPos * sizeof(short), SEEK_SET);
-//					fread(&s, sizeof(s), 1, f->fontSamplesFile);
-//					inputNextPos = (float)(s/32767.0);
 					inputPos = (float)(tsf_read_short_cached(f, pos) / 32767.0);
 					inputNextPos = (float)(tsf_read_short_cached(f, nextPos) / 32767.0);
 					// Simple linear interpolation.
@@ -1072,12 +1055,6 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 				{
 					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
 					float inputPos, inputNextPos;
-//					fseek(f->fontSamplesFile, f->fontSamplesOffset + pos * sizeof(short), SEEK_SET);
-//					fread(&s, sizeof(s), 1, f->fontSamplesFile);
-//					inputPos = (float)(s/32767.0);
-//					fseek(f->fontSamplesFile, f->fontSamplesOffset + nextPos * sizeof(short), SEEK_SET);
-//					fread(&s, sizeof(s), 1, f->fontSamplesFile);
-//					inputNextPos = (float)(s/32767.0);
 					inputPos = (float)(tsf_read_short_cached(f, pos) / 32767.0);
 					inputNextPos = (float)(tsf_read_short_cached(f, nextPos) / 32767.0);
 
@@ -1101,12 +1078,6 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 				{
 					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
 					float inputPos, inputNextPos;
-//					fseek(f->fontSamplesFile, f->fontSamplesOffset + pos * sizeof(short), SEEK_SET);
-//					fread(&s, sizeof(s), 1, f->fontSamplesFile);
-//					inputPos = (float)(s/32767.0);
-//					fseek(f->fontSamplesFile, f->fontSamplesOffset + nextPos * sizeof(short), SEEK_SET);
-//					fread(&s, sizeof(s), 1, f->fontSamplesFile);
-//					inputNextPos = (float)(s/32767.0);
 					inputPos = (float)(tsf_read_short_cached(f, pos) / 32767.0);
 					inputNextPos = (float)(tsf_read_short_cached(f, nextPos) / 32767.0);
 
@@ -1142,7 +1113,6 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 	struct tsf_riffchunk chunkHead;
 	struct tsf_riffchunk chunkList;
 	struct tsf_hydra hydra;
-	FILE *fontSamplesFile;
 	int fontSamplesOffset;
 	int fontSampleCount;
 
@@ -1162,21 +1132,12 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		{
 			while (tsf_riffchunk_read(&chunkList, &chunk, stream))
 			{
-				#define HandleChunk(chunkName) (TSF_FourCCEquals(chunk.id, #chunkName) && !(chunk.size % chunkName##SizeInFile)) \
-					{ \
-						int num = chunk.size / chunkName##SizeInFile, i; \
-						printf("allocating %d units, ", num); \
-						hydra.chunkName##Num = num; \
-						hydra.chunkName##s = (struct tsf_hydra_##chunkName*)TSF_MALLOC(num * sizeof(struct tsf_hydra_##chunkName)); \
-						for (i = 0; i < num; ++i) tsf_hydra_read_##chunkName(&hydra.chunkName##s[i], stream); \
-					}
 				#define GetChunkOffset(chunkName) (TSF_FourCCEquals(chunk.id, #chunkName) && !(chunk.size % chunkName##SizeInFile)) \
 					{ \
 						int num = chunk.size / chunkName##SizeInFile; \
 						hydra.chunkName##Num = num; \
 						hydra.chunkName##Offset = stream->tell(stream->data); \
 						stream->skip(stream->data, num * chunkName##SizeInFile); \
-						printf("GetChunkOffset(%s) = %d\n", #chunkName, num); \
 					}
 				if      GetChunkOffset(phdr)
 				else if GetChunkOffset(pbag)
@@ -1197,7 +1158,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 			{
 				if (TSF_FourCCEquals(chunk.id, "smpl"))
 				{
-					tsf_load_samples((FILE*)stream->data, &fontSamplesFile, &fontSamplesOffset, &fontSampleCount, &chunk, stream);
+					tsf_load_samples(&fontSamplesOffset, &fontSampleCount, &chunk, stream);
 				}
 				else stream->skip(stream->data, chunk.size);
 			}
@@ -1208,7 +1169,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 	{
 		//if (e) *e = TSF_INVALID_INCOMPLETE;
 	}
-	else if (fontSamplesFile == TSF_NULL)
+	else if (fontSamplesOffset == 0)
 	{
 		//if (e) *e = TSF_INVALID_NOSAMPLEDATA;
 	}
@@ -1219,16 +1180,13 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		res->presetNum = hydra.phdrNum - 1;
 		res->presets = (struct tsf_preset*)TSF_MALLOC(res->presetNum * sizeof(struct tsf_preset));
 		TSF_MEMSET(res->presets, 0, res->presetNum * sizeof(struct tsf_preset));
-		res->fontSamplesFile = fontSamplesFile;
 		res->fontSamplesOffset = fontSamplesOffset;
 		res->fontSampleCount = fontSampleCount;
 		res->outSampleRate = 44100.0f;
 		res->hydra = (struct tsf_hydra*)TSF_MALLOC(sizeof(struct tsf_hydra));
-		memcpy(res->hydra, &hydra, sizeof(*res->hydra));
+		TSF_MEMCPY(res->hydra, &hydra, sizeof(*res->hydra));
 		res->hydra->stream = (struct tsf_stream*)TSF_MALLOC(sizeof(struct tsf_stream));
-		memcpy(res->hydra->stream, stream, sizeof(*res->hydra->stream));
-//		tsf_load_presets(res, &hydra);
-		tsf_load_preset(res, res->hydra, 0);
+		TSF_MEMCPY(res->hydra->stream, stream, sizeof(*res->hydra->stream));
 	}
 	return res;
 }
@@ -1242,6 +1200,8 @@ TSFDEF void tsf_close(tsf* f)
 	TSF_FREE(f->presets);
 	TSF_FREE(f->voices);
 	TSF_FREE(f->outputSamples);
+	f->hydra->stream->close(f->hydra->stream->data);
+	TSF_FREE(f->hydra->stream);
 	TSF_FREE(f->hydra);
 	TSF_FREE(f);
 }
