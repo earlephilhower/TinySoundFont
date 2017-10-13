@@ -8,4 +8,6 @@ rm -f miditsf
 gcc -g -Wall miditsf.c -lm -o miditsf
 rm -f miditones
 gcc -g -Wall miditones.c -lm -o miditones
+rm -f midiplay
+gcc -g -Wall midiplay.c -lm -o midiplay
 #echo Done!
