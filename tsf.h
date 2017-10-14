@@ -224,6 +224,8 @@ typedef char tsf_char20[20];
 
 #define TSF_FourCCEquals(value1, value2) (value1[0] == value2[0] && value1[1] == value2[1] && value1[2] == value2[2] && value1[3] == value2[3])
 
+#define TSF_BUFFS 16
+#define TSF_BUFFSIZE 256
 
 struct tsf
 {
@@ -244,6 +246,12 @@ struct tsf
 	int outputSampleSize;
 
 	struct tsf_hydra *hydra;
+
+	// Cached sample read 
+	short *buffer[TSF_BUFFS];
+	int offset[TSF_BUFFS];
+	int timestamp[TSF_BUFFS];
+	int epoch;
 };
 
 struct tsf_stream_cached_data {
@@ -255,6 +263,8 @@ struct tsf_stream_cached_data {
 	unsigned int *offset;
 	unsigned int *timestamp;
 	unsigned int epoch;
+	unsigned int hit;
+	unsigned int miss;
 };
 
 static int tsf_stream_cached_read(void* v, void* ptr, unsigned int size)
@@ -266,6 +276,10 @@ static int tsf_stream_cached_read(void* v, void* ptr, unsigned int size)
 		for (int i=0; i < d->buffs; i++) {
 			if ((d->offset[i] <= d->pos) && ((d->offset[i] + d->buffsize) > d->pos) ) {
 				d->timestamp[i] = d->epoch++;
+				// Handle case of epoch rollover by just setting low, random epochs
+				if (d->epoch==0) {
+					for (int i=0; i<d->buffs; i++) d->timestamp[i] = d->epoch++;
+				}
 				unsigned int startOffset = d->pos - d->offset[i];
 				unsigned int len = d->buffsize - (d->pos % d->buffsize);
 				if (len > size) len = size;
@@ -273,10 +287,13 @@ static int tsf_stream_cached_read(void* v, void* ptr, unsigned int size)
 				size -= len;
 				d->pos += len;
 				p += len;
+				d->hit++;
+				if (1) { printf("CACHED HIT: %d, MISS:%d, HIT RATIO: %f\n", d->hit, d->miss, d->hit /(1.0 * d->hit + d->miss)); }
 				if (size == 0) return 1;
 				i = -1; // Restart the for() at block 0 after postincrement
 			}
 		}
+		
 		int repl = 0;
 		for (int i=1; i < d->buffs; i++) {
 			if (d->timestamp[i] < d->timestamp[repl]) repl = i;
@@ -286,6 +303,8 @@ static int tsf_stream_cached_read(void* v, void* ptr, unsigned int size)
 		d->stream->read(d->stream->data, d->buffer[repl], d->buffsize);
 		d->timestamp[repl] = d->epoch++;
 		d->offset[repl] = readOff;
+		d->miss++;
+		d->hit--; // Avoid counting this as a hit on next loop that returns data
 		// Don't actually do anything yet, we'll retry the search on next loop where it will notice new data
 	}
 	return 1;
@@ -330,8 +349,9 @@ static int tsf_stream_cached_close(void* v)
 	free(d->offset);
 	for (int i = d->buffs - 1; i >=0; i--) free(d->buffer[i]);
 	free(d->buffer);
+	int ret = d->stream->close(d->stream->data);
 	free(d);
-	return d->stream->close(d->stream->data);
+	return ret;
 }
 
 /* Wraps an existing stream with a caching layer.  First create the stream you need, then
@@ -349,6 +369,8 @@ TSFDEF struct tsf_stream *tsf_stream_wrap_cached(struct tsf_stream *stream, int 
 	s->offset = (unsigned int *)TSF_MALLOC(sizeof(s->offset) * buffs);
 	s->timestamp = (unsigned int *)TSF_MALLOC(sizeof(s->timestamp) * buffs);
 	s->epoch = 0;
+	s->hit = 0;
+	s->miss = 0;
 	for (int i=0; i<buffs; i++) {
 		s->buffer[i] = (unsigned char *)TSF_MALLOC(buffsize);
 		s->offset[i] = 0xfffffff;
@@ -1042,46 +1064,35 @@ static void tsf_voice_calcpitchratio(struct tsf_voice* v, float outSampleRate)
 	v->pitchOutputFactor = v->region->sample_rate / (tsf_timecents2Secsd(v->region->pitch_keycenter * 100.0) * outSampleRate);
 }
 
-#define TSF_BUFFS 16
-#define TSF_BUFFSIZE 256
 short tsf_read_short_cached(tsf *f, int pos)
 {
-	static char initted = TSF_FALSE;
-	static short *buffer[TSF_BUFFS];
-	static int offset[TSF_BUFFS];
-	static int timestamp[TSF_BUFFS];
-	static int epoch = 0;
 	static int hits = 0;
 	static int misses = 0;
 	static int call =0;
 	call++;
 	if ((call % 88000) ==0) printf("Hit: %d, Miss: %d, Ratio: %f\n", hits, misses, (double)hits/(double)(misses+hits));
-	if (!initted) {
-		for (int i=0; i<TSF_BUFFS; i++) {
-			buffer[i] = TSF_MALLOC(TSF_BUFFSIZE * sizeof(short));
-			offset[i] = 0xfffffff;
-			timestamp[i] = -1;
-		}
-		initted = TSF_TRUE;
-	}
+
 	for (int i=0; i<TSF_BUFFS; i++) {
-		if ((offset[i] <= pos) && ((offset[i] + TSF_BUFFSIZE) > pos) ) {
-			timestamp[i] = epoch++;
+		if ((f->offset[i] <= pos) && ((f->offset[i] + TSF_BUFFSIZE) > pos) ) {
+			f->timestamp[i] = f->epoch++;
+			if (f->epoch==0) {
+				for (int i=0; i<TSF_BUFFS; i++) f->timestamp[i] = f->epoch++;
+			}
 			hits++;
-			return buffer[i][pos - offset[i]];
+			return f->buffer[i][pos - f->offset[i]];
 		}
 	}
 	int repl = 0;
 	for (int i=1; i<TSF_BUFFS; i++) {
-		if (timestamp[i] < timestamp[repl]) repl = i;
+		if (f->timestamp[i] < f->timestamp[repl]) repl = i;
 	}
 	int readOff = pos - (pos % TSF_BUFFSIZE);
 	f->hydra->stream->seek(f->hydra->stream->data, readOff * sizeof(short));
-	f->hydra->stream->read(f->hydra->stream->data, buffer[repl], TSF_BUFFSIZE * sizeof(short));
-	timestamp[repl] = epoch++;
-	offset[repl] = readOff;
+	f->hydra->stream->read(f->hydra->stream->data, f->buffer[repl], TSF_BUFFSIZE * sizeof(short));
+	f->timestamp[repl] = f->epoch++;
+	f->offset[repl] = readOff;
 	misses++;
-	return buffer[repl][pos - readOff];
+	return f->buffer[repl][pos - readOff];
 }
 
 static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, int numSamples)
@@ -1311,6 +1322,14 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		TSF_MEMCPY(res->hydra, &hydra, sizeof(*res->hydra));
 		res->hydra->stream = (struct tsf_stream*)TSF_MALLOC(sizeof(struct tsf_stream));
 		TSF_MEMCPY(res->hydra->stream, stream, sizeof(*res->hydra->stream));
+
+		// Cached sample
+		for (int i=0; i<TSF_BUFFS; i++) {
+			res->buffer[i] = TSF_MALLOC(TSF_BUFFSIZE * sizeof(short));
+			res->offset[i] = 0xfffffff;
+			res->timestamp[i] = -1;
+		}
+		res->epoch = 0;
 	}
 	return res;
 }
@@ -1327,6 +1346,7 @@ TSFDEF void tsf_close(tsf* f)
 	f->hydra->stream->close(f->hydra->stream->data);
 	TSF_FREE(f->hydra->stream);
 	TSF_FREE(f->hydra);
+	for (int i=0; i<TSF_BUFFS; i++) TSF_FREE(f->buffer[i]);
 	TSF_FREE(f);
 }
 

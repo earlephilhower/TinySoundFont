@@ -462,8 +462,6 @@ static void Render (int cnt) {
    // example all notes are started before the audio playback begins.
    // If you do play notes while the audio thread renders output you
    // will need a mutex of some sort.
-   if (!data)
-      data = (short *) malloc (sizeof (short) * renderMax * 2);
    while (cnt) {
       int toRender = (cnt > renderMax) ? renderMax : cnt;
       tsf_render_short (g_tsf, data, toRender, 0);
@@ -477,6 +475,7 @@ static void Render (int cnt) {
 /*********************  main  ****************************/
 
 int main (int argc, char *argv[]) {
+   data = (short *) malloc (sizeof (short) * renderMax * 2);
    g_tsf = tsf_load_filename ("kawai.sf2");
    out = fopen ("raw.bin", "wb");
    tsf_set_output (g_tsf, TSF_STEREO_INTERLEAVED, 44100, -10 /* dB gain -10 */ );
@@ -487,7 +486,7 @@ int main (int argc, char *argv[]) {
    int notes_skipped = 0;
 
    struct tsf_stream stdio = { fopen("furelise.mid", "rb"), (int (*)(void *, void *, unsigned int)) &tsf_stream_stdio_read, (int (*)(void *)) &tsf_stream_stdio_tell, (int (*)(void *, unsigned int)) &tsf_stream_stdio_skip, (int (*)(void *, unsigned int)) &tsf_stream_stdio_seek, (int (*)(void *)) &tsf_stream_stdio_close, (int (*)(void *)) &tsf_stream_stdio_size };
-   tsf_stream_wrap_cached(&stdio, 16, 256, &buffer);
+   tsf_stream_wrap_cached(&stdio, 32, 64, &buffer);
    buflen = buffer.size (buffer.data);
 
 /* process the MIDI file header */
@@ -634,6 +633,10 @@ This is not unlike multiway merging used for tape sorting algoritms in the 50's!
    // generate the end-of-score command and some commentary
    gen_stopnotes ();            /* flush out any pending "stop note" commands */
    Render (44100 / 2);
+
+   buffer.close(buffer.data);
+   tsf_close(g_tsf);
+   free(data);
    printf ("  %s %d tone generators were used.\n",
            num_tonegens_used < num_tonegens ? "Only" : "All", num_tonegens_used);
    if (notes_skipped)
@@ -641,5 +644,7 @@ This is not unlike multiway merging used for tape sorting algoritms in the 50's!
          ("  %d notes were skipped because there weren't enough tone generators.\n", notes_skipped);
 
    printf ("  Done.\n");
+
+
    return 0;
 }
