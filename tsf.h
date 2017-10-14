@@ -1326,7 +1326,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 
 		// Cached sample
 		for (int i=0; i<TSF_BUFFS; i++) {
-			res->buffer[i] = TSF_MALLOC(TSF_BUFFSIZE * sizeof(short));
+			res->buffer[i] = (short *)TSF_MALLOC(TSF_BUFFSIZE * sizeof(short));
 			res->offset[i] = 0xfffffff;
 			res->timestamp[i] = -1;
 		}
