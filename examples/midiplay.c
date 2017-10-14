@@ -3,6 +3,7 @@
 
 static tsf *g_tsf;
 struct tsf_stream buffer;
+struct tsf_stream stdio;
 
 /*********************************************************************************************
 *
@@ -468,20 +469,28 @@ static void Render (int cnt) {
 }
 
 
-/*********************  main  ****************************/
+// State needed for PlayMID()
+static int notes_skipped = 0;
+static int tracknum = 0;
+static int earliest_tracknum = 0;
+static unsigned long earliest_time = 0;
 
-int main (int argc, char *argv[]) {
+// Open file, parse headers, get ready tio process MIDI
+void PrepareMIDI()
+{
    data = (short *) malloc (sizeof (short) * renderMax * 2);
    g_tsf = tsf_load_filename ("kawai.sf2");
    out = fopen ("raw.bin", "wb");
    tsf_set_output (g_tsf, TSF_STEREO_INTERLEAVED, 44100, -10 /* dB gain -10 */ );
 
-   int tracknum;
-   int earliest_tracknum;
-   unsigned long earliest_time;
-   int notes_skipped = 0;
+   stdio.data = fopen("furelise.mid", "rb");
+   stdio.read = (int (*)(void *, void *, unsigned int)) &tsf_stream_stdio_read;
+   stdio.tell = (int (*)(void *)) &tsf_stream_stdio_tell;
+   stdio.skip = (int (*)(void *, unsigned int)) &tsf_stream_stdio_skip;
+   stdio.seek = (int (*)(void *, unsigned int)) &tsf_stream_stdio_seek;
+   stdio.close = (int (*)(void *)) &tsf_stream_stdio_close;
+   stdio.size = (int (*)(void *)) &tsf_stream_stdio_size;
 
-   struct tsf_stream stdio = { fopen("furelise.mid", "rb"), (int (*)(void *, void *, unsigned int)) &tsf_stream_stdio_read, (int (*)(void *)) &tsf_stream_stdio_tell, (int (*)(void *, unsigned int)) &tsf_stream_stdio_skip, (int (*)(void *, unsigned int)) &tsf_stream_stdio_seek, (int (*)(void *)) &tsf_stream_stdio_close, (int (*)(void *)) &tsf_stream_stdio_size };
    tsf_stream_wrap_cached(&stdio, 32, 64, &buffer);
    buflen = buffer.size (buffer.data);
 
@@ -500,16 +509,25 @@ int main (int argc, char *argv[]) {
       find_note (tracknum);     /* position to the first note on/off */
    }
 
+   notes_skipped = 0;
+   tracknum = 0;
+   earliest_tracknum = 0;
+   earliest_time = 0;
+}
+
+// Parses the note on/offs ujntil we are ready to render some more samples.  Then return the
+// total number of samples to render before we need to be called again
+int PlayMIDI()
+{
 /* Continue processing all tracks, in an order based on the simulated time.
 This is not unlike multiway merging used for tape sorting algoritms in the 50's! */
 
-   tracknum = 0;
    do {                         /* while there are still track notes to process */
-      struct track_status *trk;
-      struct tonegen_status *tg;
-      int tgnum;
-      int count_tracks;
-      unsigned long delta_time, delta_msec;
+      static struct track_status *trk;
+      static struct tonegen_status *tg;
+      static int tgnum;
+      static int count_tracks;
+      static unsigned long delta_time, delta_msec;
 
       /* Find the track with the earliest event time,
          and output a delay command if time has advanced.
@@ -537,8 +555,7 @@ This is not unlike multiway merging used for tape sorting algoritms in the 50's!
             earliest_time = trk->time;
             earliest_tracknum = tracknum;
          }
-      }
-      while (--count_tracks);
+      } while (--count_tracks);
 
       tracknum = earliest_tracknum;     /* the track we picked */
       trk = &track[tracknum];
@@ -557,7 +574,8 @@ This is not unlike multiway merging used for tape sorting algoritms in the 50's!
          if (delta_msec > 0x7fff)
             midi_error ("INTERNAL: time delta too big", trk->trkptr);
          int samples = (((int) delta_msec) * 44100) / 1000;
-         Render (samples);
+         timenow = earliest_time;
+         return samples;
       }
       timenow = earliest_time;
 
@@ -584,8 +602,7 @@ This is not unlike multiway merging used for tape sorting algoritms in the 50's!
                }
             }
             find_note (tracknum);       // use up the note
-         }
-         while (trk->cmd == CMD_STOPNOTE && trk->time == timenow);
+         } while (trk->cmd == CMD_STOPNOTE && trk->time == timenow);
 
       /*  If this track event is "start note", process only it.
          Don't do more than one, so we allow other tracks their chance at grabbing tone generators. */
@@ -620,12 +637,14 @@ This is not unlike multiway merging used for tape sorting algoritms in the 50's!
          find_note (tracknum);     // use up the note
       }
    }
-
    while (tracks_done < num_tracks);
-
-   // generate the end-of-score command and some commentary
    gen_stopnotes ();            /* flush out any pending "stop note" commands */
-   Render (44100 / 2);
+   return -1; // EOF
+}
+
+
+void StopMIDI()
+{
 
    buffer.close(buffer.data);
    tsf_close(g_tsf);
@@ -637,7 +656,21 @@ This is not unlike multiway merging used for tape sorting algoritms in the 50's!
          ("  %d notes were skipped because there weren't enough tone generators.\n", notes_skipped);
 
    printf ("  Done.\n");
+}
 
+int main(int argc, char **argv)
+{
+   int samples = 0;
+   PrepareMIDI();
+   do {
+      samples = PlayMIDI();
+      if (samples==-1) break;
+      Render(samples);
+   } while (1);
+
+   Render (44100 / 2);
+
+   StopMIDI();
 
    return 0;
 }
