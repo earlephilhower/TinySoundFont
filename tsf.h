@@ -273,6 +273,7 @@ static int tsf_stream_cached_read(void* v, void* ptr, unsigned int size)
 	unsigned char *p = (unsigned char *)ptr;
 
 	while (size) {
+		if (d->pos >= d->size) return 0; // EOF
 		for (int i=0; i < d->buffs; i++) {
 			if ((d->offset[i] <= d->pos) && ((d->offset[i] + d->buffsize) > d->pos) ) {
 				d->timestamp[i] = d->epoch++;
@@ -288,7 +289,6 @@ static int tsf_stream_cached_read(void* v, void* ptr, unsigned int size)
 				d->pos += len;
 				p += len;
 				d->hit++;
-				if (1) { printf("CACHED HIT: %d, MISS:%d, HIT RATIO: %f\n", d->hit, d->miss, d->hit /(1.0 * d->hit + d->miss)); }
 				if (size == 0) return 1;
 				i = -1; // Restart the for() at block 0 after postincrement
 			}
@@ -1068,9 +1068,9 @@ short tsf_read_short_cached(tsf *f, int pos)
 {
 	static int hits = 0;
 	static int misses = 0;
-	static int call =0;
-	call++;
-	if ((call % 88000) ==0) printf("Hit: %d, Miss: %d, Ratio: %f\n", hits, misses, (double)hits/(double)(misses+hits));
+//	static int call =0;
+//	call++;
+//	if ((call % 88000) ==0) printf("Hit: %d, Miss: %d, Ratio: %f\n", hits, misses, (double)hits/(double)(misses+hits));
 
 	for (int i=0; i<TSF_BUFFS; i++) {
 		if ((f->offset[i] <= pos) && ((f->offset[i] + TSF_BUFFSIZE) > pos) ) {

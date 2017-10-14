@@ -1,11 +1,8 @@
 #define TSF_IMPLEMENTATION
 #include "../tsf.h"
+
 static tsf *g_tsf;
-struct tsf_stream buffer =
-   { TSF_NULL, (int (*)(void *, void *, unsigned int)) &tsf_stream_stdio_read,
-(int (*)(void *)) &tsf_stream_stdio_tell, (int (*)(void *, unsigned int)) &tsf_stream_stdio_skip,
-(int (*)(void *, unsigned int)) &tsf_stream_stdio_seek, (int (*)(void *)) &tsf_stream_stdio_close,
-(int (*)(void *)) &tsf_stream_stdio_size };
+struct tsf_stream buffer;
 
 /*********************************************************************************************
 *
@@ -449,7 +446,6 @@ void gen_stopnotes (void) {
       if (tg->stopnote_pending) {
          tsf_note_off (g_tsf, tg->instrument, tg->note);
          tg->stopnote_pending = false;
-         printf ("NOTEOFF: tg=%d, inst=%d, note=%d\n", tgnum, tg->instrument, tg->note);
       }
    }
 }
@@ -548,7 +544,7 @@ This is not unlike multiway merging used for tape sorting algoritms in the 50's!
       trk = &track[tracknum];
       if (earliest_time < timenow)
          midi_error ("INTERNAL: time went backwards", trk->trkptr);
-      printf ("on track %d\n", tracknum);
+
       /* If time has advanced, output a "delay" command */
 
       delta_time = earliest_time - timenow;
@@ -561,7 +557,6 @@ This is not unlike multiway merging used for tape sorting algoritms in the 50's!
          if (delta_msec > 0x7fff)
             midi_error ("INTERNAL: time delta too big", trk->trkptr);
          int samples = (((int) delta_msec) * 44100) / 1000;
-         printf ("DELAY: %f seconds (%d samples)\n", samples / 44100.0, samples);
          Render (samples);
       }
       timenow = earliest_time;
@@ -619,8 +614,6 @@ This is not unlike multiway merging used for tape sorting algoritms in the 50's!
                tg->instrument = midi_chan_instrument[trk->chan];
             }
             tsf_note_on (g_tsf, tg->instrument, tg->note, trk->velocity / 128.0);
-            printf ("NOTEON:  tg=%d, inst=%d, note=%d, vel=%f\n", tgnum, tg->instrument, tg->note,
-                    trk->velocity / 128.0);
          } else {
             ++notes_skipped;
          }
