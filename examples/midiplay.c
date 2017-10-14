@@ -59,24 +59,15 @@ struct track_header {
 
 /***********  Global variables  ******************/
 
-#define MAX_TONEGENS 16         /* max tone generators: tones we can play simultaneously */
-#define DEFAULT_TONEGENS 6      /* default number of tone generators */
+#define MAX_TONEGENS 32         /* max tone generators: tones we can play simultaneously */
 #define MAX_TRACKS 24           /* max number of MIDI tracks we will process */
-#define PERCUSSION_TRACK 9      /* the track MIDI uses for percussion sounds */
 
 int hdrptr;
 unsigned long buflen;
 int num_tracks;
 int tracks_done = 0;
-int outfile_maxitems = 26;
-int outfile_itemcount = 0;
-int num_tonegens = DEFAULT_TONEGENS;
+int num_tonegens = MAX_TONEGENS;
 int num_tonegens_used = 0;
-int instrument_changes = 0;
-int note_on_commands = 0;
-unsigned channel_mask = 0xffff; // bit mask of channels to process
-int keyshift = 0;               // optional chromatic note shift for output file
-long int outfile_bytecount = 0;
 unsigned int ticks_per_beat = 240;
 unsigned long timenow = 0;
 unsigned long tempo;            /* current tempo in usec/qnote */
@@ -84,9 +75,9 @@ unsigned long tempo;            /* current tempo in usec/qnote */
 struct tonegen_status {         /* current status of a tone generator */
    bool playing;                /* is it playing? */
    bool stopnote_pending;       /* do we need to stop this generator before the next wait? */
-   int track;                   /* if so, which track is the note from? */
-   int note;                    /* what note is playing? */
-   int instrument;              /* what instrument? */
+   char track;                   /* if so, which track is the note from? */
+   char note;                    /* what note is playing? */
+   char instrument;              /* what instrument? */
 } tonegen[MAX_TONEGENS] = {
    {
    0}
@@ -625,10 +616,8 @@ This is not unlike multiway merging used for tape sorting algoritms in the 50's!
             tg->stopnote_pending = false;
             trk->tonegens[tgnum] = true;
             trk->preferred_tonegen = tgnum;
-            ++note_on_commands;
             if (tg->instrument != midi_chan_instrument[trk->chan]) {    /* new instrument for this generator */
                tg->instrument = midi_chan_instrument[trk->chan];
-               ++instrument_changes;
             }
             tsf_note_on (g_tsf, tg->instrument, tg->note, trk->velocity / 128.0);
             printf ("NOTEON:  tg=%d, inst=%d, note=%d, vel=%f\n", tgnum, tg->instrument, tg->note,
