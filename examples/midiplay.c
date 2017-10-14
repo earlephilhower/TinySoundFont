@@ -675,7 +675,7 @@ static void audioCB(void* data, Uint8 *stream, int len)
 
 void usage()
 {
-   printf("Usage: midiplay --sf <sounffont.sf2> --midi <song.mid>\n");
+   printf("Usage: midiplay --sf <sounffont.sf2> --midi <song.mid> [--profile]\n");
    exit(1);
 }
 
@@ -683,6 +683,7 @@ int main(int argc, char **argv)
 {
    char *soundfont = NULL;
    char *midi = NULL;
+   bool profile = false;
 
    for (int i=1; i<argc; i++) {
       if (!strcmp(argv[i], "--sf")) {
@@ -691,6 +692,8 @@ int main(int argc, char **argv)
       } else if (!strcmp(argv[i], "--midi")) {
          midi = argv[i+1];
          i++;
+      } else if (!strcmp(argv[i], "--profile")) {
+         profile = true;
       } else {
          printf("Unknown parameter: %s\n", argv[i]);
          usage();
@@ -700,6 +703,20 @@ int main(int argc, char **argv)
       printf("ERROR: Please specify soundfont and midi file.\n");
       usage();
    }
+
+   if (profile) {
+      short *data = (short*)malloc(1024*1024);
+      PrepareMIDI(soundfont, midi);
+      do {
+         int samples = PlayMIDI();
+         if (samples==-1) break;
+         tsf_render_short(g_tsf, data, samples, 0);
+      } while (1);
+      tsf_render_short(g_tsf, data, 44100/2, 0);
+      free(data);
+      return 0;
+   }
+
 
    // Define the desired audio output format we request
    SDL_AudioSpec OutputAudioSpec;
