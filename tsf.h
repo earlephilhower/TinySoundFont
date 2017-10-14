@@ -224,6 +224,7 @@ typedef char tsf_char20[20];
 
 #define TSF_FourCCEquals(value1, value2) (value1[0] == value2[0] && value1[1] == value2[1] && value1[2] == value2[2] && value1[3] == value2[3])
 
+// Samples cache, number and sample count
 #define TSF_BUFFS 16
 #define TSF_BUFFSIZE 256
 
@@ -1248,8 +1249,8 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 	struct tsf_riffchunk chunkHead;
 	struct tsf_riffchunk chunkList;
 	struct tsf_hydra hydra;
-	int fontSamplesOffset;
-	int fontSampleCount;
+	int fontSamplesOffset = 0;
+	int fontSampleCount = 0;
 
 	if (!tsf_riffchunk_read(TSF_NULL, &chunkHead, stream) || !TSF_FourCCEquals(chunkHead.id, "sfbk"))
 	{

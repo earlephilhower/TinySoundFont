@@ -1,6 +1,10 @@
 #define TSF_IMPLEMENTATION
 #include "../tsf.h"
 
+#include "minisdl_audio.h"
+
+#define FREQ 44100
+
 static tsf *g_tsf;
 struct tsf_stream buffer;
 struct tsf_stream stdio;
@@ -451,24 +455,6 @@ void gen_stopnotes (void) {
    }
 }
 
-static FILE *out;
-const int renderMax = 256;
-static short *data = NULL;
-static void Render (int cnt) {
-   // Note we don't do any thread concurrency control here because in this
-   // example all notes are started before the audio playback begins.
-   // If you do play notes while the audio thread renders output you
-   // will need a mutex of some sort.
-   while (cnt) {
-      int toRender = (cnt > renderMax) ? renderMax : cnt;
-      tsf_render_short (g_tsf, data, toRender, 0);
-      fwrite (data, toRender, 2 * sizeof (short), out);
-      cnt -= toRender;
-   }
-   fflush (out);
-}
-
-
 // State needed for PlayMID()
 static int notes_skipped = 0;
 static int tracknum = 0;
@@ -476,14 +462,12 @@ static int earliest_tracknum = 0;
 static unsigned long earliest_time = 0;
 
 // Open file, parse headers, get ready tio process MIDI
-void PrepareMIDI()
+void PrepareMIDI(const char *soundfont, const char *midi)
 {
-   data = (short *) malloc (sizeof (short) * renderMax * 2);
-   g_tsf = tsf_load_filename ("kawai.sf2");
-   out = fopen ("raw.bin", "wb");
-   tsf_set_output (g_tsf, TSF_STEREO_INTERLEAVED, 44100, -10 /* dB gain -10 */ );
+   g_tsf = tsf_load_filename (soundfont);
+   tsf_set_output (g_tsf, TSF_STEREO_INTERLEAVED, FREQ, -10 /* dB gain -10 */ );
 
-   stdio.data = fopen("furelise.mid", "rb");
+   stdio.data = fopen(midi, "rb");
    stdio.read = (int (*)(void *, void *, unsigned int)) &tsf_stream_stdio_read;
    stdio.tell = (int (*)(void *)) &tsf_stream_stdio_tell;
    stdio.skip = (int (*)(void *, unsigned int)) &tsf_stream_stdio_skip;
@@ -573,7 +557,7 @@ This is not unlike multiway merging used for tape sorting algoritms in the 50's!
          delta_msec = temp / 1000;      // get around LCC compiler bug
          if (delta_msec > 0x7fff)
             midi_error ("INTERNAL: time delta too big", trk->trkptr);
-         int samples = (((int) delta_msec) * 44100) / 1000;
+         int samples = (((int) delta_msec) * FREQ) / 1000;
          timenow = earliest_time;
          return samples;
       }
@@ -630,7 +614,7 @@ This is not unlike multiway merging used for tape sorting algoritms in the 50's!
             if (tg->instrument != midi_chan_instrument[trk->chan]) {    /* new instrument for this generator */
                tg->instrument = midi_chan_instrument[trk->chan];
             }
-            tsf_note_on (g_tsf, tg->instrument, tg->note, trk->velocity / 128.0);
+            tsf_note_on (g_tsf, tg->instrument, tg->note, trk->velocity / 256.0);
          } else {
             ++notes_skipped;
          }
@@ -648,7 +632,6 @@ void StopMIDI()
 
    buffer.close(buffer.data);
    tsf_close(g_tsf);
-   free(data);
    printf ("  %s %d tone generators were used.\n",
            num_tonegens_used < num_tonegens ? "Only" : "All", num_tonegens_used);
    if (notes_skipped)
@@ -658,17 +641,97 @@ void StopMIDI()
    printf ("  Done.\n");
 }
 
+
+bool doneplaying = false;
+
+// Callback function called by the audio thread
+static void audioCB(void* data, Uint8 *stream, int len)
+{
+   static int samplesLeft = 0;
+   static bool eof = false;
+   int cnt = (len / (2 * sizeof(short))); //2 output channels
+   short *ptr = (short *)stream;
+   while (cnt) {
+      if (samplesLeft) {
+         int togen = (samplesLeft >= cnt) ? cnt : samplesLeft;
+         tsf_render_short(g_tsf, ptr, togen, 0);
+         ptr += togen;
+         cnt -= togen;
+         samplesLeft -= togen;
+         if (!cnt) return;
+      }
+      if (!eof) samplesLeft = PlayMIDI();
+      if (samplesLeft == -1) {
+         eof = true;
+         samplesLeft = FREQ/2; // 0.5 second fade
+      } else if (samplesLeft==0 && eof) {
+         doneplaying = true;
+         memset(ptr, 0, sizeof(short) * 2 * cnt);
+         return;
+      }
+   }
+}
+
+
+void usage()
+{
+   printf("Usage: midiplay --sf <sounffont.sf2> --midi <song.mid>\n");
+   exit(1);
+}
+
 int main(int argc, char **argv)
 {
-   int samples = 0;
-   PrepareMIDI();
-   do {
-      samples = PlayMIDI();
-      if (samples==-1) break;
-      Render(samples);
-   } while (1);
+   char *soundfont = NULL;
+   char *midi = NULL;
 
-   Render (44100 / 2);
+   for (int i=1; i<argc; i++) {
+      if (!strcmp(argv[i], "--sf")) {
+         soundfont = argv[i+1];
+         i++;
+      } else if (!strcmp(argv[i], "--midi")) {
+         midi = argv[i+1];
+         i++;
+      } else {
+         printf("Unknown parameter: %s\n", argv[i]);
+         usage();
+      }
+   }
+   if (!soundfont || !midi) {
+      printf("ERROR: Please specify soundfont and midi file.\n");
+      usage();
+   }
+
+   // Define the desired audio output format we request
+   SDL_AudioSpec OutputAudioSpec;
+   OutputAudioSpec.freq = FREQ;
+   OutputAudioSpec.format = AUDIO_S16;
+   OutputAudioSpec.channels = 2;
+   OutputAudioSpec.samples = 4096;
+   OutputAudioSpec.callback = audioCB;
+
+   // Initialize the audio system
+   if (SDL_AudioInit(NULL) < 0)
+   {
+      fprintf(stderr, "Could not initialize audio hardware or driver\n");
+      return 1;
+   }
+
+   PrepareMIDI( soundfont, midi );
+
+   // Request the desired audio output format
+   if (SDL_OpenAudio(&OutputAudioSpec, NULL) < 0)
+   {
+      fprintf(stderr, "Could not open the audio hardware or the desired audio output format\n");
+      return 1;
+   }
+
+   // Start the actual audio playback here
+   // The audio thread will begin to call our AudioCallback function
+   SDL_PauseAudio(0);
+
+   while (!doneplaying) {
+      SDL_Delay(1000);
+   }
 
    StopMIDI();
 
