@@ -486,8 +486,8 @@ int main (int argc, char *argv[]) {
    unsigned long earliest_time;
    int notes_skipped = 0;
 
-   FILE *f = fopen ("furelise.mid", "rb");
-   buffer.data = f;
+   struct tsf_stream stdio = { fopen("furelise.mid", "rb"), (int (*)(void *, void *, unsigned int)) &tsf_stream_stdio_read, (int (*)(void *)) &tsf_stream_stdio_tell, (int (*)(void *, unsigned int)) &tsf_stream_stdio_skip, (int (*)(void *, unsigned int)) &tsf_stream_stdio_seek, (int (*)(void *)) &tsf_stream_stdio_close, (int (*)(void *)) &tsf_stream_stdio_size };
+   tsf_stream_wrap_cached(&stdio, 16, 256, &buffer);
    buflen = buffer.size (buffer.data);
 
 /* process the MIDI file header */

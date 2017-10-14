@@ -246,6 +246,125 @@ struct tsf
 	struct tsf_hydra *hydra;
 };
 
+struct tsf_stream_cached_data {
+	int buffs;
+	int buffsize;
+	struct tsf_stream *stream;
+	unsigned int size, pos;
+	unsigned char **buffer;
+	unsigned int *offset;
+	unsigned int *timestamp;
+	unsigned int epoch;
+};
+
+static int tsf_stream_cached_read(void* v, void* ptr, unsigned int size)
+{
+	struct tsf_stream_cached_data *d = (struct tsf_stream_cached_data*)v;
+	unsigned char *p = (unsigned char *)ptr;
+
+	while (size) {
+		for (int i=0; i < d->buffs; i++) {
+			if ((d->offset[i] <= d->pos) && ((d->offset[i] + d->buffsize) > d->pos) ) {
+				d->timestamp[i] = d->epoch++;
+				unsigned int startOffset = d->pos - d->offset[i];
+				unsigned int len = d->buffsize - (d->pos % d->buffsize);
+				if (len > size) len = size;
+				TSF_MEMCPY(p, &d->buffer[i][startOffset], len);
+				size -= len;
+				d->pos += len;
+				p += len;
+				if (size == 0) return 1;
+				i = -1; // Restart the for() at block 0 after postincrement
+			}
+		}
+		int repl = 0;
+		for (int i=1; i < d->buffs; i++) {
+			if (d->timestamp[i] < d->timestamp[repl]) repl = i;
+		}
+		int readOff = d->pos - (d->pos % d->buffsize);
+		d->stream->seek(d->stream->data, readOff);
+		d->stream->read(d->stream->data, d->buffer[repl], d->buffsize);
+		d->timestamp[repl] = d->epoch++;
+		d->offset[repl] = readOff;
+		// Don't actually do anything yet, we'll retry the search on next loop where it will notice new data
+	}
+	return 1;
+}
+
+static int tsf_stream_cached_tell(void* v)
+{
+	struct tsf_stream_cached_data *d = (struct tsf_stream_cached_data*)v;
+	return d->pos;
+}
+
+static int tsf_stream_cached_size(void* v)
+{
+	struct tsf_stream_cached_data *d = (struct tsf_stream_cached_data*)v;
+	return d->size;
+}
+
+static int tsf_stream_cached_skip(void* v, unsigned int count)
+{
+	struct tsf_stream_cached_data *d = (struct tsf_stream_cached_data*)v;
+	if ((d->pos + count) < d->size) {
+		d->pos += count;
+		return 1;
+	}
+	return 0;
+}
+
+static int tsf_stream_cached_seek(void* v, unsigned int pos)
+{
+	struct tsf_stream_cached_data *d = (struct tsf_stream_cached_data*)v;
+	if (pos < d->size) {
+		d->pos = pos;
+		return 1;
+	}
+	return 0;
+}
+
+static int tsf_stream_cached_close(void* v)
+{
+	struct tsf_stream_cached_data *d = (struct tsf_stream_cached_data*)v;
+	free(d->timestamp);
+	free(d->offset);
+	for (int i = d->buffs - 1; i >=0; i--) free(d->buffer[i]);
+	free(d->buffer);
+	free(d);
+	return d->stream->close(d->stream->data);
+}
+
+/* Wraps an existing stream with a caching layer.  First create the stream you need, then
+   call this to create a new stream.  Use this new stream only, and when done close() will
+   close both this stream as well as the wrapped one. */
+TSFDEF struct tsf_stream *tsf_stream_wrap_cached(struct tsf_stream *stream, int buffs, int buffsize, struct tsf_stream *dest) 
+{
+	struct tsf_stream_cached_data *s = (struct tsf_stream_cached_data*)TSF_MALLOC(sizeof(*s));
+	s->buffs  = buffs;
+	s->buffsize = buffsize;
+	s->stream = stream;
+	s->size = stream->size(stream->data);
+	s->pos = stream->tell(stream->data);
+	s->buffer = (unsigned char **)TSF_MALLOC(sizeof(*s->buffer) * buffs);
+	s->offset = (unsigned int *)TSF_MALLOC(sizeof(s->offset) * buffs);
+	s->timestamp = (unsigned int *)TSF_MALLOC(sizeof(s->timestamp) * buffs);
+	s->epoch = 0;
+	for (int i=0; i<buffs; i++) {
+		s->buffer[i] = (unsigned char *)TSF_MALLOC(buffsize);
+		s->offset[i] = 0xfffffff;
+		s->timestamp[i] = 0;
+	}
+	dest->data = (void*)s;
+	dest->read = &tsf_stream_cached_read;
+	dest->tell = &tsf_stream_cached_tell;
+	dest->skip = &tsf_stream_cached_skip;
+	dest->seek = &tsf_stream_cached_seek;
+	dest->size = &tsf_stream_cached_size;
+	dest->close = &tsf_stream_cached_close;
+	return dest;
+}
+
+
 #ifndef TSF_NO_STDIO
 static int tsf_stream_stdio_read(FILE* f, void* ptr, unsigned int size) { return (int)fread(ptr, 1, size, f); }
 static int tsf_stream_stdio_tell(FILE* f) { return ftell(f); }
