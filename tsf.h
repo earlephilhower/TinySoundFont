@@ -226,7 +226,7 @@ typedef char tsf_char20[20];
 
 // Samples cache, number and sample count
 #define TSF_BUFFS 16
-#define TSF_BUFFSIZE 256
+#define TSF_BUFFSIZE 512
 
 struct tsf
 {
@@ -422,7 +422,7 @@ static int tsf_stream_memory_tell(struct tsf_stream_memory* m) { return m->pos; 
 static int tsf_stream_memory_size(struct tsf_stream_memory* m) { return m->total; }
 static int tsf_stream_memory_skip(struct tsf_stream_memory* m, unsigned int count) { if (m->pos + count > m->total) return 0; m->pos += count; return 1; }
 static int tsf_stream_memory_seek(struct tsf_stream_memory* m, unsigned int pos) { if (pos > m->total) return 0; else m->pos = pos; return 1; }
-static int tsf_stream_memory_close(struct tsf_stream_memory* m) { return 1; }
+static int tsf_stream_memory_close(struct tsf_stream_memory* m) { (void)m; return 1; }
 TSFDEF tsf* tsf_load_memory(const void* buffer, int size)
 {
 	struct tsf_stream stream = { TSF_NULL, (int(*)(void*,void*,unsigned int))&tsf_stream_memory_read, (int(*)(void*))&tsf_stream_memory_tell, (int(*)(void*,unsigned int))&tsf_stream_memory_skip, (int(*)(void*,unsigned int))&tsf_stream_memory_seek, (int(*)(void*))&tsf_stream_memory_close, (int(*)(void*))&tsf_stream_memory_size };
@@ -492,6 +492,14 @@ TGET(igen)
 TGET(shdr)
 #undef TGET
 
+typedef int64_t fixed32p32;
+typedef int32_t fixed30p2;
+typedef int32_t fixed24p8;
+typedef int32_t fixed16p16;
+typedef int32_t fixed8p24;
+
+
+
 struct tsf_riffchunk { tsf_fourcc id; tsf_u32 size; };
 struct tsf_envelope { float delay, start, attack, hold, decay, sustain, release, keynumToHold, keynumToDecay; };
 struct tsf_voice_envelope { float level, slope; int samplesUntilNextSegment; int segment; struct tsf_envelope parameters; TSF_BOOL segmentIsExponential, exponentialDecay; };
@@ -529,6 +537,7 @@ struct tsf_voice
 	struct tsf_region* region;
 	double pitchInputTimecents, pitchOutputFactor;
 	double sourceSamplePosition;
+  fixed32p32 sourceSamplePositionF32P32;
 	float  noteGainDB, panFactorLeft, panFactorRight;
 	unsigned int sampleEnd, loopStart, loopEnd;
 	struct tsf_voice_envelope ampenv, modenv;
@@ -1080,7 +1089,7 @@ short tsf_read_short_cached(tsf *f, int pos)
 				for (int i=0; i<TSF_BUFFS; i++) f->timestamp[i] = f->epoch++;
 			}
 			hits++;
-			return f->buffer[i][pos - f->offset[i]];
+      return f->buffer[i][pos - f->offset[i]];
 		}
 	}
 	int repl = 0;
@@ -1088,8 +1097,11 @@ short tsf_read_short_cached(tsf *f, int pos)
 		if (f->timestamp[i] < f->timestamp[repl]) repl = i;
 	}
 	int readOff = pos - (pos % TSF_BUFFSIZE);
+// for (int i=0; i<TSF_BUFFSIZE; i++) { f->buffer[repl][i] = i; }
 	f->hydra->stream->seek(f->hydra->stream->data, readOff * sizeof(short));
 	f->hydra->stream->read(f->hydra->stream->data, f->buffer[repl], TSF_BUFFSIZE * sizeof(short));
+//static uint32_t *bp = NULL; if (!bp) bp = (uint32_t*)malloc(512);
+//printf("off=%08x, buff=%p, len=%08x\n", readOff * sizeof(short), bp, TSF_BUFFSIZE); spi_flash_read(0x0000, bp, 512/4-4) ;
 	f->timestamp[repl] = f->epoch++;
 	f->offset[repl] = readOff;
 	misses++;
@@ -1243,6 +1255,114 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 	if (tmpLowpass.active || dynamicLowpass) v->lowpass = tmpLowpass;
 }
 
+
+void DumpF32P32(char *name, long long x) {
+  printf("%s = %08x.%08x\n", name, (int32_t)((x>>32)&0xffffffff), (int32_t)(x&0xffffffff));
+}
+static void tsf_voice_render_fast(tsf* f, struct tsf_voice* v, short* outputBuffer, int numSamples)
+{
+  struct tsf_region* region = v->region;
+  short* outL = outputBuffer;
+  short* outR = (f->outputmode == TSF_STEREO_UNWEAVED ? outL + numSamples : TSF_NULL);
+
+  // Cache some values, to give them at least some chance of ending up in registers.
+  TSF_BOOL updateModEnv = (region->modEnvToPitch || region->modEnvToFilterFc);
+  TSF_BOOL updateModLFO = (v->modlfo.delta && (region->modLfoToPitch || region->modLfoToFilterFc || region->modLfoToVolume));
+  TSF_BOOL updateVibLFO = (v->viblfo.delta && (region->vibLfoToPitch));
+  TSF_BOOL isLooping    = (v->loopStart < v->loopEnd);
+  unsigned int tmpLoopStart = v->loopStart, tmpLoopEnd = v->loopEnd;
+  //double tmpSampleEndDbl = (double)v->sampleEnd, tmpLoopEndDbl = (double)tmpLoopEnd + 1.0;
+  //double tmpSourceSamplePosition = v->sourceSamplePosition;
+  fixed32p32 tmpSampleEndF32P32 = ((fixed32p32)(v->sampleEnd)) << 32;
+  fixed32p32 tmpLoopEndF32P32 = ((fixed32p32)(tmpLoopEnd + 1)) << 32;
+  fixed32p32 tmpSourceSamplePositionF32P32 = v->sourceSamplePositionF32P32;
+  struct tsf_voice_lowpass tmpLowpass = v->lowpass;
+
+  TSF_BOOL dynamicLowpass = (region->modLfoToFilterFc || region->modEnvToFilterFc);
+  float tmpSampleRate, tmpInitialFilterFc, tmpModLfoToFilterFc, tmpModEnvToFilterFc;
+
+  TSF_BOOL dynamicPitchRatio = (region->modLfoToPitch || region->modEnvToPitch || region->vibLfoToPitch);
+  //double pitchRatio;
+  fixed32p32 pitchRatioF32P32;
+  float tmpModLfoToPitch, tmpVibLfoToPitch, tmpModEnvToPitch;
+
+  TSF_BOOL dynamicGain = (region->modLfoToVolume != 0);
+  float noteGain, tmpModLfoToVolume;
+
+  if (dynamicLowpass) tmpSampleRate = f->outSampleRate, tmpInitialFilterFc = (float)region->initialFilterFc, tmpModLfoToFilterFc = (float)region->modLfoToFilterFc, tmpModEnvToFilterFc = (float)region->modEnvToFilterFc;
+  else tmpSampleRate = 0, tmpInitialFilterFc = 0, tmpModLfoToFilterFc = 0, tmpModEnvToFilterFc = 0;
+
+  if (dynamicPitchRatio) pitchRatioF32P32 = 0, tmpModLfoToPitch = (float)region->modLfoToPitch, tmpVibLfoToPitch = (float)region->vibLfoToPitch, tmpModEnvToPitch = (float)region->modEnvToPitch;
+  else {
+    double pr = tsf_timecents2Secsd(v->pitchInputTimecents) * v->pitchOutputFactor;
+    fixed32p32 adj = 1LL<<32;
+    pr *= adj;
+    pitchRatioF32P32 = (int64_t)pr, tmpModLfoToPitch = 0, tmpVibLfoToPitch = 0, tmpModEnvToPitch = 0;
+  }
+
+  if (dynamicGain) noteGain = 0, tmpModLfoToVolume = (float)region->modLfoToVolume * 0.1f;
+  else noteGain = tsf_decibelsToGain(v->noteGainDB), tmpModLfoToVolume = 0;
+
+  while (numSamples)
+  {
+    float gainMono;
+    int blockSamples = (numSamples > TSF_RENDER_EFFECTSAMPLEBLOCK ? TSF_RENDER_EFFECTSAMPLEBLOCK : numSamples);
+    numSamples -= blockSamples;
+
+    if (dynamicLowpass)
+    {
+      float fres = tmpInitialFilterFc + v->modlfo.level * tmpModLfoToFilterFc + v->modenv.level * tmpModEnvToFilterFc;
+      tmpLowpass.active = (fres <= 13500.0f);
+      if (tmpLowpass.active) tsf_voice_lowpass_setup(&tmpLowpass, tsf_cents2Hertz(fres) / tmpSampleRate);
+    }
+
+    if (dynamicPitchRatio) {
+      pitchRatioF32P32 = tsf_timecents2Secsd(v->pitchInputTimecents + (v->modlfo.level * tmpModLfoToPitch + v->viblfo.level * tmpVibLfoToPitch + v->modenv.level * tmpModEnvToPitch)) * v->pitchOutputFactor * (1LL<<32);
+   }
+
+    if (dynamicGain)
+      noteGain = tsf_decibelsToGain(v->noteGainDB + (v->modlfo.level * tmpModLfoToVolume));
+
+    gainMono = noteGain * v->ampenv.level;
+    short gainMonoFP = gainMono * 32767;
+    
+    // Update EG.
+    tsf_voice_envelope_process(&v->ampenv, blockSamples, f->outSampleRate);
+    if (updateModEnv) tsf_voice_envelope_process(&v->modenv, blockSamples, f->outSampleRate);
+
+    // Update LFOs.
+    if (updateModLFO) tsf_voice_lfo_process(&v->modlfo, blockSamples);
+    if (updateVibLFO) tsf_voice_lfo_process(&v->viblfo, blockSamples);
+
+    while (blockSamples-- && tmpSourceSamplePositionF32P32 < tmpSampleEndF32P32)
+    {
+      unsigned int pos = (unsigned int)(tmpSourceSamplePositionF32P32>>32);
+      short val = tsf_read_short_cached(f, pos);
+      int32_t val32 = (int)val * (int)gainMonoFP;
+
+      *outL++ += val32>>16;
+      if (f->outputmode != TSF_MONO) *outR++ += val32>>16;
+
+      // Next sample.
+      tmpSourceSamplePositionF32P32 += pitchRatioF32P32;
+      if (tmpSourceSamplePositionF32P32 >= tmpLoopEndF32P32 && isLooping)
+        tmpSourceSamplePositionF32P32 -= (tmpLoopEndF32P32 - tmpLoopStart + (1LL<<32));
+    }
+
+    if (tmpSourceSamplePositionF32P32 >= tmpSampleEndF32P32 || v->ampenv.segment == TSF_SEGMENT_DONE)
+    {
+      tsf_voice_kill(v);
+      return;
+    }
+  }
+
+  v->sourceSamplePositionF32P32 = tmpSourceSamplePositionF32P32;
+  if (tmpLowpass.active || dynamicLowpass) v->lowpass = tmpLowpass;
+}
+
+
+
+
 TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 {
 	tsf* res = TSF_NULL;
@@ -1326,7 +1446,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 
 		// Cached sample
 		for (int i=0; i<TSF_BUFFS; i++) {
-			res->buffer[i] = (short *)TSF_MALLOC(TSF_BUFFSIZE * sizeof(short));
+			res->buffer[i] = (short*)TSF_MALLOC(TSF_BUFFSIZE * sizeof(short));
 			res->offset[i] = 0xfffffff;
 			res->timestamp[i] = -1;
 		}
@@ -1401,7 +1521,13 @@ TSFDEF void tsf_note_on(tsf* f, int preset, int key, float vel)
 		if (!voice)
 		{
 			f->voiceNum += 4;
+			struct tsf_voice *saveVoice = f->voices;
 			f->voices = (struct tsf_voice*)TSF_REALLOC(f->voices, f->voiceNum * sizeof(struct tsf_voice));
+			if (!f->voices) {
+				f->voices = saveVoice;
+				printf("OOM, no room for new voice.  Ignoring note_on\n");
+				return;
+			}
 			voice = &f->voices[f->voiceNum - 4];
 			voice[1].playingPreset = voice[2].playingPreset = voice[3].playingPreset = -1;
 		}
@@ -1425,6 +1551,7 @@ TSFDEF void tsf_note_on(tsf* f, int preset, int key, float vel)
 
 		// Offset/end.
 		voice->sourceSamplePosition = region->offset;
+    		voice->sourceSamplePositionF32P32 = ((int64_t)region->offset)<< 32;
 		voice->sampleEnd = f->fontSampleCount;
 		if (region->end > 0 && region->end < voice->sampleEnd) voice->sampleEnd = region->end + 1;
 
@@ -1496,6 +1623,19 @@ TSFDEF void tsf_render_float(tsf* f, float* buffer, int samples, int flag_mixing
 		if (v->playingPreset != -1)
 			tsf_voice_render(f, v, buffer, samples);
 }
+
+TSFDEF void tsf_render_short_fast(tsf* f, short* buffer, int samples, int flag_mixing)
+{
+  struct tsf_voice *v = f->voices, *vEnd = v + f->voiceNum;
+  if (!flag_mixing) TSF_MEMSET(buffer, 0, (f->outputmode == TSF_MONO ? 1 : 2) * sizeof(short) * samples);
+  for (; v != vEnd; v++) {
+    if (v->playingPreset != -1)
+      tsf_voice_render_fast(f, v, buffer, samples);
+    yield();
+  }
+}
+
+
 
 #ifdef __cplusplus
 }
