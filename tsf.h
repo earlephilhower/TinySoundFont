@@ -855,7 +855,7 @@ static void tsf_region_envtosecs(struct tsf_envelope* p, TSF_BOOL sustainIsGain)
 	else p->sustain = 1.0f - (p->sustain / 1000.0f);
 }
 
-static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
+static void tsf_load_preset(const tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 {
 	enum { GenInstrument = 41, GenKeyRange = 43, GenVelRange = 44, GenSampleID = 53 };
 	// Read each preset.
@@ -1026,7 +1026,7 @@ static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 			//if (pbag->modNdx < pbag[1].modNdx) addUnsupportedOpcode("any modulator");
 
 			// Handle preset's global zone.
-			if (ppbag == hydra->pbags + pphdr->presetBagNdx && !hadGenInstrument)
+			if (pbagIdx == phdr.presetBagNdx && !hadGenInstrument)
 				globalRegion = presetRegion;
 		}
 	}
@@ -1437,7 +1437,7 @@ static void tsf_voice_render_fast(tsf* f, struct tsf_voice* v, short* outputBuff
   unsigned int tmpLoopStart = v->loopStart, tmpLoopEnd = v->loopEnd;
   //double tmpSampleEndDbl = (double)v->sampleEnd, tmpLoopEndDbl = (double)tmpLoopEnd + 1.0;
   //double tmpSourceSamplePosition = v->sourceSamplePosition;
-  fixed32p32 tmpSampleEndF32P32 = ((fixed32p32)(v->sampleEnd)) << 32;
+  fixed32p32 tmpSampleEndF32P32 = ((fixed32p32)(region->end)) << 32;
   fixed32p32 tmpLoopEndF32P32 = ((fixed32p32)(tmpLoopEnd + 1)) << 32;
   fixed32p32 tmpSourceSamplePositionF32P32 = v->sourceSamplePositionF32P32;
   struct tsf_voice_lowpass tmpLowpass = v->lowpass;
@@ -1686,7 +1686,7 @@ TSFDEF void tsf_note_on(tsf* f, int preset_index, int key, float vel)
 
 	if (preset_index < 0 || preset_index >= f->presetNum) return;
 	if (vel <= 0.0f) { tsf_note_off(f, preset_index, key); return; }
-	if (f->presets[preset].regions == NULL) tsf_load_preset(f, f->hydra, preset);
+	if (f->presets[preset_index].regions == NULL) tsf_load_preset(f, f->hydra, preset_index);
 
 	// Play all matching regions.
 	voicePlayIndex = f->voicePlayIndex++;
@@ -1739,8 +1739,6 @@ TSFDEF void tsf_note_on(tsf* f, int preset_index, int key, float vel)
 		// Offset/end.
 		voice->sourceSamplePosition = region->offset;
 		voice->sourceSamplePositionF32P32 = ((int64_t)region->offset)<< 32;
-		voice->sampleEnd = f->fontSampleCount;
-		if (region->end > 0 && region->end < voice->sampleEnd) voice->sampleEnd = region->end + 1;
 
 		// Loop.
 		doLoop = (region->loop_mode != TSF_LOOPMODE_NONE && region->loop_start < region->loop_end);
