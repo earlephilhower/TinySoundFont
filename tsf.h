@@ -727,7 +727,6 @@ static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 		int pbagIdx, pbagEndIdx;
 		for (pbagIdx = phdr.presetBagNdx, get_pbag(hydra, pbagIdx, &pbag), pbagEndIdx = phdrNext.presetBagNdx; pbagIdx != pbagEndIdx; pbagIdx++, get_pbag(hydra, pbagIdx, &pbag))
 		{
-<<<<<<< HEAD
 			struct tsf_hydra_pbag pbagNext;
 			unsigned char plokey = 0, phikey = 127, plovel = 0, phivel = 127;
 			get_pbag(hydra, pbagIdx + 1, &pbagNext);
@@ -1468,7 +1467,6 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		res->fontSamplesOffset = fontSamplesOffset;
 		res->fontSampleCount = fontSampleCount;
 		res->outSampleRate = 44100.0f;
-<<<<<<< HEAD
 		res->hydra = (struct tsf_hydra*)TSF_MALLOC(sizeof(struct tsf_hydra));
 		TSF_MEMCPY(res->hydra, &hydra, sizeof(*res->hydra));
 		res->hydra->stream = (struct tsf_stream*)TSF_MALLOC(sizeof(struct tsf_stream));
