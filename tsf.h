@@ -693,7 +693,7 @@ static void tsf_region_envtosecs(struct tsf_envelope* p, TSF_BOOL sustainIsGain)
 
 static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 {
-	enum { GenInstrument = 41, GenSampleID = 53 };
+	enum { GenInstrument = 41, GenKeyRange = 43, GenVelRange = 44, GenSampleID = 53 };
 	// Read each preset.
 	struct tsf_hydra_phdr phdr;
 	int phdrIdx, phdrMaxIdx;
@@ -727,12 +727,16 @@ static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 		int pbagIdx, pbagEndIdx;
 		for (pbagIdx = phdr.presetBagNdx, get_pbag(hydra, pbagIdx, &pbag), pbagEndIdx = phdrNext.presetBagNdx; pbagIdx != pbagEndIdx; pbagIdx++, get_pbag(hydra, pbagIdx, &pbag))
 		{
+<<<<<<< HEAD
 			struct tsf_hydra_pbag pbagNext;
+			unsigned char plokey = 0, phikey = 127, plovel = 0, phivel = 127;
 			get_pbag(hydra, pbagIdx + 1, &pbagNext);
 			struct tsf_hydra_pgen pgen;
 			int pgenIdx, pgenEndIdx;
 			for (pgenIdx = pbag.genNdx, get_pgen(hydra, pgenIdx, &pgen), pgenEndIdx = pbagNext.genNdx; pgenIdx != pgenEndIdx; pgenIdx++, get_pgen(hydra, pgenIdx, &pgen))
 			{
+				if (pgen.genOper == GenKeyRange) { plokey = pgen.genAmount.range.lo; phikey = pgen.genAmount.range.hi; continue; }
+				if (pgen.genOper == GenVelRange) { plovel = pgen.genAmount.range.lo; phivel = pgen.genAmount.range.hi; continue; }
 				if (pgen.genOper != GenInstrument) continue;
 				if (pgen.genAmount.wordAmount >= hydra->instNum) continue;
 				struct tsf_hydra_inst inst, instNext;
@@ -746,9 +750,13 @@ static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 					get_ibag(hydra, ibagIdx + 1, &ibagNext);
 					struct tsf_hydra_igen igen;
 					int igenIdx, igenEndIdx;
+					unsigned char ilokey = 0, ihikey = 127, ilovel = 0, ihivel = 127;
 					for (igenIdx = ibag.instGenNdx, get_igen(hydra, igenIdx, &igen), igenEndIdx = ibagNext.instGenNdx; igenIdx != igenEndIdx; igenIdx++, get_igen(hydra, igenIdx, &igen))
-						if (igen.genOper == GenSampleID)
-							preset->regionNum++;
+					{
+						if (igen.genOper == GenKeyRange) { ilokey = igen.genAmount.range.lo; ihikey = igen.genAmount.range.hi; continue; }
+						if (igen.genOper == GenVelRange) { ilovel = igen.genAmount.range.lo; ihivel = igen.genAmount.range.hi; continue; }
+						if (igen.genOper == GenSampleID && ihikey >= plokey && ilokey <= phikey && ihivel >= plovel && ilovel <= phivel) preset->regionNum++;
+					}
 				}
 			}
 		}
@@ -777,15 +785,6 @@ static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 					if (whichInst >= hydra->instNum) continue;
 
 					tsf_region_clear(&instRegion, TSF_FALSE);
-					// Preset generators are supposed to be "relative" modifications of
-					// the instrument settings, but that makes no sense for ranges.
-					// For those, we'll have the instrument's generator take
-					// precedence, though that may not be correct.
-					instRegion.lokey = presetRegion.lokey;
-					instRegion.hikey = presetRegion.hikey;
-					instRegion.lovel = presetRegion.lovel;
-					instRegion.hivel = presetRegion.hivel;
-
 					struct tsf_hydra_inst inst, instNext;
 					get_inst(hydra, whichInst, &inst);
 					get_inst(hydra, whichInst + 1, &instNext);
@@ -806,6 +805,14 @@ static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 							{
 								struct tsf_hydra_shdr shdr;
 								get_shdr(hydra, igen.genAmount.wordAmount, &shdr);
+
+								//preset region key and vel ranges are a filter for the zone regions
+								if (zoneRegion.hikey < presetRegion.lokey || zoneRegion.lokey > presetRegion.hikey) continue;
+								if (zoneRegion.hivel < presetRegion.lovel || zoneRegion.lovel > presetRegion.hivel) continue;
+								if (presetRegion.lokey > zoneRegion.lokey) zoneRegion.lokey = presetRegion.lokey;
+								if (presetRegion.hikey < zoneRegion.hikey) zoneRegion.hikey = presetRegion.hikey;
+								if (presetRegion.lovel > zoneRegion.lovel) zoneRegion.lovel = presetRegion.lovel;
+								if (presetRegion.hivel < zoneRegion.hivel) zoneRegion.hivel = presetRegion.hivel;
 
 								//sum regions
 								zoneRegion.offset += presetRegion.offset;
@@ -855,6 +862,7 @@ static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 								else if (zoneRegion.pan > 100.0f) zoneRegion.pan = 100.0f;
 								if (zoneRegion.initialFilterQ < 1500 || zoneRegion.initialFilterQ > 13500) zoneRegion.initialFilterQ = 0;
 
+								get_shdr(hydra, igen.genAmount.wordAmount, &shdr);
 								zoneRegion.offset += shdr.start;
 								zoneRegion.end += shdr.end;
 								zoneRegion.loop_start += shdr.startLoop;
