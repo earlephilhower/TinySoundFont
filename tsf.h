@@ -137,8 +137,13 @@ enum TSFOutputMode
 // Setup the parameters for the voice render methods
 //   outputmode: if mono or stereo and how stereo channel data is ordered
 //   samplerate: the number of samples per second (output frequency)
-//   globalgaindb: volume gain in decibels (>0 means higher, <0 means lower)
-TSFDEF void tsf_set_output(tsf* f, enum TSFOutputMode outputmode, int samplerate, float globalgaindb CPP_DEFAULT0);
+//   global_gain_db: volume gain in decibels (>0 means higher, <0 means lower)
+TSFDEF void tsf_set_output(tsf* f, enum TSFOutputMode outputmode, int samplerate, float global_gain_db CPP_DEFAULT0);
+
+// Adjust global panning values. Mono output will apply the average of both.
+//    pan_factor_left: volume gain factor for the left channel
+//    pan_factor_right: volume gain factor for the right channel
+TSFDEF void tsf_set_panning(tsf* f, float pan_factor_left, float pan_factor_right);
 
 // Start playing a note
 //   preset_index: preset index >= 0 and < tsf_get_presetcount()
@@ -251,7 +256,7 @@ struct tsf
 
 	float outSampleRate;
 	enum TSFOutputMode outputmode;
-	float globalGainDB;
+	float globalGainDB, globalPanFactorLeft, globalPanFactorRight;
 
 	float* outputSamples;
 	int outputSampleSize;
@@ -1150,7 +1155,7 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 	if (dynamicPitchRatio) pitchRatio = 0, tmpModLfoToPitch = (float)region->modLfoToPitch, tmpVibLfoToPitch = (float)region->vibLfoToPitch, tmpModEnvToPitch = (float)region->modEnvToPitch;
 	else pitchRatio = tsf_timecents2Secsd(v->pitchInputTimecents) * v->pitchOutputFactor, tmpModLfoToPitch = 0, tmpVibLfoToPitch = 0, tmpModEnvToPitch = 0;
 
-	if (dynamicGain) noteGain = 0, tmpModLfoToVolume = (float)region->modLfoToVolume * 0.1f;
+	if (dynamicGain) tmpModLfoToVolume = (float)region->modLfoToVolume * 0.1f;
 	else noteGain = tsf_decibelsToGain(v->noteGainDB), tmpModLfoToVolume = 0;
 
 	while (numSamples)
@@ -1185,7 +1190,7 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 		switch (f->outputmode)
 		{
 			case TSF_STEREO_INTERLEAVED:
-				gainLeft = gainMono * v->panFactorLeft, gainRight = gainMono * v->panFactorRight;
+				gainLeft = gainMono * f->globalPanFactorLeft * v->panFactorLeft, gainRight = gainMono * f->globalPanFactorRight * v->panFactorRight;
 				while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
 				{
 					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
@@ -1208,7 +1213,7 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 				break;
 
 			case TSF_STEREO_UNWEAVED:
-				gainLeft = gainMono * v->panFactorLeft, gainRight = gainMono * v->panFactorRight;
+				gainLeft = gainMono * f->globalPanFactorLeft * v->panFactorLeft, gainRight = gainMono * f->globalPanFactorRight * v->panFactorRight;
 				while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
 				{
 					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
@@ -1232,6 +1237,7 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 				break;
 
 			case TSF_MONO:
+				gainMono *= (f->globalPanFactorLeft + f->globalPanFactorRight) * .5f;
 				while (blockSamples-- && tmpSourceSamplePosition < tmpSampleEndDbl)
 				{
 					unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
@@ -1449,6 +1455,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		res->fontSamplesOffset = fontSamplesOffset;
 		res->fontSampleCount = fontSampleCount;
 		res->outSampleRate = 44100.0f;
+<<<<<<< HEAD
 		res->hydra = (struct tsf_hydra*)TSF_MALLOC(sizeof(struct tsf_hydra));
 		TSF_MEMCPY(res->hydra, &hydra, sizeof(*res->hydra));
 		res->hydra->stream = (struct tsf_stream*)TSF_MALLOC(sizeof(struct tsf_stream));
@@ -1461,6 +1468,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 			res->timestamp[i] = -1;
 		}
 		res->epoch = 0;
+		res->globalPanFactorLeft = res->globalPanFactorRight = 1.0f;
 	}
 	return res;
 }
@@ -1507,11 +1515,17 @@ TSFDEF const char* tsf_bank_get_presetname(const tsf* f, int bank, int preset_nu
 	return tsf_get_presetname(f, tsf_get_presetindex(f, bank, preset_number));
 }
 
-TSFDEF void tsf_set_output(tsf* f, enum TSFOutputMode outputmode, int samplerate, float globalgaindb)
+TSFDEF void tsf_set_output(tsf* f, enum TSFOutputMode outputmode, int samplerate, float global_gain_db)
 {
 	f->outSampleRate = (float)(samplerate >= 1 ? samplerate : 44100.0f);
 	f->outputmode = outputmode;
-	f->globalGainDB = globalgaindb;
+	f->globalGainDB = global_gain_db;
+}
+
+TSFDEF void tsf_set_panning(tsf* f, float pan_factor_left, float pan_factor_right)
+{
+	f->globalPanFactorLeft = pan_factor_left;
+	f->globalPanFactorRight = pan_factor_right;
 }
 
 TSFDEF void tsf_note_on(tsf* f, int preset_index, int key, float vel)
@@ -1520,7 +1534,7 @@ TSFDEF void tsf_note_on(tsf* f, int preset_index, int key, float vel)
 	TSF_BOOL haveGroupedNotesPlaying = TSF_FALSE;
 	struct tsf_voice *v, *vEnd; struct tsf_region *region, *regionEnd;
 
-	if (preset_index < 0 || preset_index >= f->presetNum) return;
+	if (preset_index < 0 || preset_index >= f->presetNum || midiVelocity <= 0) return;
 	if (f->presets[preset].regions == NULL) tsf_load_preset(f, f->hydra, preset);
 
 	// Are any grouped notes playing? (Needed for group stopping) Also stop any voices still playing this note.
