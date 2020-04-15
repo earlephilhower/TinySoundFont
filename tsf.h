@@ -714,7 +714,7 @@ static void tsf_region_operator(struct tsf_region* region, tsf_u16 genOper, unio
 		case KeyRange:                   region->lokey = amount->range.lo; region->hikey = amount->range.hi; break;
 		case VelRange:                   region->lovel = amount->range.lo; region->hivel = amount->range.hi; break;
 		case StartloopAddrsCoarseOffset: region->loop_start += amount->shortAmount * 32768; break;
-		case InitialAttenuation:         region->volume += -amount->shortAmount / 100.0f; break;
+		case InitialAttenuation:         region->volume += amount->shortAmount / 100.0f; break;
 		case EndloopAddrsCoarseOffset:   region->loop_end += amount->shortAmount * 32768; break;
 		case CoarseTune:                 region->transpose += amount->shortAmount; break;
 		case FineTune:                   region->tune += amount->shortAmount; break;
@@ -758,6 +758,7 @@ static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 		struct tsf_hydra_phdr otherPhdr;
 		int otherPhdrIdx;
 		struct tsf_preset* preset;
+		struct tsf_region globalRegion;
 		for (otherPhdrIdx = 0, get_phdr(hydra, otherPhdrIdx, &otherPhdr); otherPhdrIdx != phdrMaxIdx; otherPhdrIdx++, get_phdr(hydra, otherPhdrIdx, &otherPhdr))
 		{
 			if (otherPhdrIdx == phdrIdx || otherPhdr.bank > phdr.bank) continue;
@@ -816,13 +817,13 @@ static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 		}
 
 		preset->regions = (struct tsf_region*)TSF_MALLOC(preset->regionNum * sizeof(struct tsf_region));
+		tsf_region_clear(&globalRegion, TSF_TRUE);
 
 		// Zones.
-		//*** TODO: Handle global zone (modulators only).
 		for (pbagIdx = phdr.presetBagNdx, get_pbag(hydra, pbagIdx, &pbag), pbagEndIdx = phdrNext.presetBagNdx; pbagIdx != pbagEndIdx; pbagIdx++, get_pbag(hydra, pbagIdx, &pbag))
 		{
-			struct tsf_region presetRegion;
-			tsf_region_clear(&presetRegion, TSF_TRUE);
+			struct tsf_region presetRegion = globalRegion;
+			int hadGenInstrument = 0;
 			struct tsf_hydra_pbag pbagNext;
 			get_pbag(hydra, pbagIdx + 1, &pbagNext);
 			struct tsf_hydra_pgen pgen;
@@ -928,13 +929,6 @@ static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 								if (zoneRegion.end && zoneRegion.end < res->fontSampleCount) zoneRegion.end++;
 								else zoneRegion.end = res->fontSampleCount;
 
-								// Pin initialAttenuation to max +6dB.
-								if (zoneRegion.volume > 6.0f)
-								{
-									zoneRegion.volume = 6.0f;
-									//addUnsupportedOpcode("extreme gain in initialAttenuation");
-								}
-
 								preset->regions[region_index] = zoneRegion;
 								region_index++;
 								hadSampleID = 1;
@@ -949,12 +943,17 @@ static void tsf_load_preset(tsf* res, struct tsf_hydra *hydra, int presetToLoad)
 						// Modulators (TODO)
 						//if (ibag->instModNdx < ibag[1].instModNdx) addUnsupportedOpcode("any modulator");
 					}
+					hadGenInstrument = 1;
 				}
 				else tsf_region_operator(&presetRegion, pgen.genOper, &pgen.genAmount);
 			}
 
 			// Modulators (TODO)
 			//if (pbag->modNdx < pbag[1].modNdx) addUnsupportedOpcode("any modulator");
+
+			// Handle preset's global zone.
+			if (ppbag == hydra->pbags + pphdr->presetBagNdx && !hadGenInstrument)
+				globalRegion = presetRegion;
 		}
 	}
 }
@@ -968,7 +967,7 @@ static void tsf_load_samples(int *fontSamplesOffset, unsigned int* fontSampleCou
 	stream->skip(stream->data, samplesLeft * sizeof(short));
 }
 
-static void tsf_voice_envelope_nextsegment(struct tsf_voice_envelope* e, int active_segment, float outSampleRate)
+static void tsf_voice_envelope_nextsegment(struct tsf_voice_envelope* e, short active_segment, float outSampleRate)
 {
 	switch (active_segment)
 	{
@@ -1644,7 +1643,7 @@ TSFDEF void tsf_note_on(tsf* f, int preset_index, int key, float vel)
 		voice->playingPreset = preset_index;
 		voice->playingKey = key;
 		voice->playIndex = voicePlayIndex;
-		voice->noteGainDB = f->globalGainDB + region->volume - tsf_gainToDecibels(1.0f / vel);
+		voice->noteGainDB = f->globalGainDB - region->volume - tsf_gainToDecibels(1.0f / vel);
 
 		if (f->channels)
 		{
