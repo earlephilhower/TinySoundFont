@@ -73,7 +73,7 @@ extern "C" {
 typedef struct tsf tsf;
 
 #ifndef TSF_CONST_FILE
-#if !defined(TSF_NO_STDIO
+#ifndef TSF_NO_STDIO
 // Directly load a SoundFont from a .sf2 file path
 TSFDEF tsf* tsf_load_filename(const char* filename);
 #endif
@@ -459,14 +459,14 @@ struct tsf_preset
 {
 	tsf_char20 presetName;
 	tsf_u16 preset, bank;
-	struct tsf_region* regions;
+	TSF_CONST struct tsf_region* regions;
 	int regionNum;
 };
 
 struct tsf_voice
 {
 	int playingPreset, playingKey, playingChannel, heldSustain;
-	struct tsf_region* region;
+	TSF_CONST struct tsf_region* region;
 	double pitchInputTimecents, pitchOutputFactor;
 	double sourceSamplePosition;
 	float  noteGainDB, panFactorLeft, panFactorRight;
@@ -992,7 +992,7 @@ static int tsf_decode_sf3_samples(const void* rawBuffer, float** pFloatBuffer, u
 #endif
 
 #ifndef TSF_CONST_FILE
-static int tsf_load_samples(void** pRawBuffer, const float** pFloatBuffer, const short ** pShortBuffer, unsigned int* pSmplCount, struct tsf_riffchunk *chunkSmpl, struct tsf_stream* stream)
+static int tsf_load_samples(void** pRawBuffer, TSF_CONST float** pFloatBuffer, TSF_CONST short ** pShortBuffer, unsigned int* pSmplCount, struct tsf_riffchunk *chunkSmpl, struct tsf_stream* stream)
 {
 	#ifdef STB_VORBIS_INCLUDE_STB_VORBIS_H
 	// With OGG Vorbis support we cannot pre-allocate the memory for tsf_decode_sf3_samples
@@ -1135,7 +1135,7 @@ static void tsf_voice_envelope_nextsegment(struct tsf_voice_envelope* e, short a
 	}
 }
 
-static void tsf_voice_envelope_setup(struct tsf_voice_envelope* e, struct tsf_envelope* new_parameters, int midiNoteNumber, short midiVelocity, TSF_BOOL isAmpEnv, float outSampleRate)
+static void tsf_voice_envelope_setup(struct tsf_voice_envelope* e, const struct tsf_envelope* new_parameters, int midiNoteNumber, short midiVelocity, TSF_BOOL isAmpEnv, float outSampleRate)
 {
 	e->parameters = *new_parameters;
 	if (e->parameters.keynumToHold)
@@ -1242,8 +1242,8 @@ static void tsf_voice_calcpitchratio(struct tsf_voice* v, float pitchShift, floa
 
 static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, int numSamples)
 {
-	struct tsf_region* region = v->region;
-	const float* input = f->fontSamples;
+	TSF_CONST struct tsf_region* region = v->region;
+	TSF_CONST float* input = f->fontSamples;
 	float* outL = outputBuffer;
 	float* outR = (f->outputmode == TSF_STEREO_UNWEAVED ? outL + numSamples : TSF_NULL);
 
@@ -1508,8 +1508,10 @@ TSFDEF void tsf_close(tsf* f)
 	if (!f) return;
 	if (!f->refCount || !--(*f->refCount))
 	{
+#ifndef TSF_CONST_FILE
 		struct tsf_preset *preset = f->presets, *presetEnd = preset + f->presetNum;
 		for (; preset != presetEnd; preset++) TSF_FREE(preset->regions);
+#endif
 		TSF_FREE(f->presets);
 #ifndef TSF_CONST_FILE
                 TSF_FREE(f->fontSamples);
@@ -1585,7 +1587,7 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 {
 	short midiVelocity = (short)(vel * 127);
 	unsigned int voicePlayIndex;
-	struct tsf_region *region, *regionEnd;
+	TSF_CONST struct tsf_region *region, *regionEnd;
 
 	if (preset_index < 0 || preset_index >= f->presetNum) return 1;
 	if (vel <= 0.0f) { tsf_note_off(f, preset_index, key); return 1; }

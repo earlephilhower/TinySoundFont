@@ -1,4 +1,4 @@
-static struct tsf_region preset_0_regions[] = {
+static const struct tsf_region preset_0_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,
@@ -170,7 +170,7 @@ static struct tsf_region preset_0_regions[] = {
 }
 ,
 };
-static struct tsf_region preset_1_regions[] = {
+static const struct tsf_region preset_1_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,
@@ -223,7 +223,7 @@ static struct tsf_region preset_1_regions[] = {
 }
 ,
 };
-static struct tsf_region preset_2_regions[] = {
+static const struct tsf_region preset_2_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,
@@ -259,7 +259,7 @@ static struct tsf_region preset_2_regions[] = {
 }
 ,
 };
-static struct tsf_region preset_3_regions[] = {
+static const struct tsf_region preset_3_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,
@@ -312,7 +312,7 @@ static struct tsf_region preset_3_regions[] = {
 }
 ,
 };
-static struct tsf_region preset_4_regions[] = {
+static const struct tsf_region preset_4_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,
@@ -365,7 +365,7 @@ static struct tsf_region preset_4_regions[] = {
 }
 ,
 };
-static struct tsf_region preset_5_regions[] = {
+static const struct tsf_region preset_5_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,
@@ -469,7 +469,7 @@ static struct tsf_region preset_5_regions[] = {
 }
 ,
 };
-static struct tsf_region preset_6_regions[] = {
+static const struct tsf_region preset_6_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,
@@ -522,7 +522,7 @@ static struct tsf_region preset_6_regions[] = {
 }
 ,
 };
-static struct tsf_region preset_7_regions[] = {
+static const struct tsf_region preset_7_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,
@@ -643,7 +643,7 @@ static struct tsf_region preset_7_regions[] = {
 }
 ,
 };
-static struct tsf_region preset_8_regions[] = {
+static const struct tsf_region preset_8_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,
@@ -679,7 +679,7 @@ static struct tsf_region preset_8_regions[] = {
 }
 ,
 };
-static struct tsf_region preset_9_regions[] = {
+static const struct tsf_region preset_9_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,
@@ -698,7 +698,7 @@ static struct tsf_region preset_9_regions[] = {
 }
 ,
 };
-static struct tsf_region preset_10_regions[] = {
+static const struct tsf_region preset_10_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,
@@ -751,7 +751,7 @@ static struct tsf_region preset_10_regions[] = {
 }
 ,
 };
-static struct tsf_region preset_11_regions[] = {
+static const struct tsf_region preset_11_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,
@@ -804,7 +804,7 @@ static struct tsf_region preset_11_regions[] = {
 }
 ,
 };
-static struct tsf_region preset_12_regions[] = {
+static const struct tsf_region preset_12_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,
@@ -874,7 +874,7 @@ static struct tsf_region preset_12_regions[] = {
 }
 ,
 };
-static struct tsf_region preset_13_regions[] = {
+static const struct tsf_region preset_13_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,
@@ -927,7 +927,7 @@ static struct tsf_region preset_13_regions[] = {
 }
 ,
 };
-static struct tsf_region preset_14_regions[] = {
+static const struct tsf_region preset_14_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,
@@ -1031,7 +1031,7 @@ static struct tsf_region preset_14_regions[] = {
 }
 ,
 };
-static struct tsf_region preset_15_regions[] = {
+static const struct tsf_region preset_15_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,
@@ -1118,7 +1118,7 @@ static struct tsf_region preset_15_regions[] = {
 }
 ,
 };
-static struct tsf_region preset_16_regions[] = {
+static const struct tsf_region preset_16_regions[] = {
 {
  .loop_mode=1,
  .sample_rate=22050,

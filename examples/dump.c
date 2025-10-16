@@ -40,7 +40,7 @@ const char *dump_char20(const char *p) {
 
 void dump_presets(const struct tsf_preset *p, int cnt) {
     for (int idx = 0; idx < cnt; idx++) {
-        fprintf(dump, "static struct tsf_region preset_%d_regions[] = {\n", idx);
+        fprintf(dump, "static const struct tsf_region preset_%d_regions[] = {\n", idx);
         for (int i=0; i<p[idx].regionNum; i++) {
             dump_region(&p[idx].regions[i]);
             fprintf(dump, ",\n");
