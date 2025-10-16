@@ -1,3 +1,4 @@
+#define TSF_SAMPLES_SHORT
 #define TSF_IMPLEMENTATION
 #include "../tsf.h"
 
@@ -61,6 +62,7 @@ void dump_presets(const struct tsf_preset *p, int cnt) {
 }
 
 void dump_samples(const short *s, const float *f, int cnt) {
+#ifdef TSF_SAMPLES_SHORT
     fprintf(dump, "static const short shortSamples[%d] = {\n", cnt);
     for (int i=0; i <cnt; i++) {
         if ((i%16) == 15) {
@@ -69,6 +71,7 @@ void dump_samples(const short *s, const float *f, int cnt) {
         fprintf(dump, "%d, ", s[i]);
     }
     fprintf(dump, "\n};\n");
+#else
     fprintf(dump, "static const float fontSamples[%d] = {\n", cnt);
     for (int i=0; i <cnt; i++) {
         if ((i%16) == 15) {
@@ -77,6 +80,7 @@ void dump_samples(const short *s, const float *f, int cnt) {
         fprintf(dump, "%f, ", f[i]);
     }
     fprintf(dump, "\n};\n");
+#endif
 }
 
 void dump_tsf(tsf* t) {
@@ -87,8 +91,11 @@ void dump_tsf(tsf* t) {
 
     fprintf(dump, "struct tsf _tsf = {\n");
     fprintf(dump, " .presets = presets,\n");
+#indef TSF_SAMPLES_SHORT
     fprintf(dump, " .fontSamples = fontSamples,\n");
+#else
     fprintf(dump, " .shortSamples = shortSamples,\n");
+#endif
     fprintf(dump, " .samplesNum = %d,\n", t->samplesNum);
     fprintf(dump, " .voices = NULL,\n");
     fprintf(dump, " .channels = NULL,\n");

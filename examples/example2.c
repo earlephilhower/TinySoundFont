@@ -2,6 +2,7 @@
 #include "miniaudio_io.h"
 
 #define TSF_CONST_FILE
+#define TSF_SAMPLES_SHORT
 #define TSF_IMPLEMENTATION
 #include "../tsf.h"
 
@@ -18,7 +19,11 @@ static void AudioCallback(ma_device* pDevice, void* pOutput, const void* pInput,
 {
 	// Render the audio samples in float format
 	ma_mutex_lock(&g_Mutex); //get exclusive lock
+#ifndef TSF_SAMPLES_SHORT
 	tsf_render_float(g_TinySoundFont, (float*)pOutput, (int)frameCount, 0);
+#else
+        tsf_render_short(g_TinySoundFont, (short*)pOutput, (int)frameCount, 0);
+#endif
 	ma_mutex_unlock(&g_Mutex);
 }
 
@@ -30,7 +35,11 @@ int main(int argc, char *argv[])
 	ma_device device;
 	ma_device_config deviceConfig;
 	deviceConfig = ma_device_config_init(ma_device_type_playback);
+#ifndef TSF_SAMPLES_SHORT
 	deviceConfig.playback.format = ma_format_f32;
+#else
+	deviceConfig.playback.format = ma_format_s16;
+#endif
 	deviceConfig.playback.channels = 2;
 	deviceConfig.sampleRate = 44100;
 	deviceConfig.dataCallback = AudioCallback;

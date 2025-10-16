@@ -33899,7 +33899,7 @@ static const float fontSamples[261211] = {
 };
 struct tsf _tsf = {
  .presets = presets,
- .fontSamples = fontSamples,
+// .fontSamples = fontSamples,
  .shortSamples = shortSamples,
  .samplesNum = 261211,
  .voices = NULL,
