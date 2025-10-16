@@ -1480,7 +1480,7 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 
 	while (numSamples)
 	{
-		float gainMono, gainLeft, gainRight;
+//		float gainMono, gainLeft, gainRight;
                 fixed16p16 gainMonoF16P16, gainLeftF16P16, gainRightF16P16;
 		int blockSamples = (numSamples > TSF_RENDER_EFFECTSAMPLEBLOCK ? TSF_RENDER_EFFECTSAMPLEBLOCK : numSamples);
 		numSamples -= blockSamples;
@@ -1499,7 +1499,7 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 		if (dynamicGain)
 			noteGain = tsf_decibelsToGain(v->noteGainDB + (v->modlfo.level * tmpModLfoToVolume));
 
-		gainMono = noteGain * v->ampenv.level;
+//		gainMono = noteGain * v->ampenv.level;
                 gainMonoF16P16 = (noteGain * v->ampenv.level) * 65536.0;
 
 		// Update EG.
@@ -1513,23 +1513,39 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 		switch (f->outputmode)
 		{
 			case TSF_STEREO_INTERLEAVED:
-				gainLeft = gainMono * v->panFactorLeft, gainRight = gainMono * v->panFactorRight;
+//				gainLeft = gainMono * v->panFactorLeft, gainRight = gainMono * v->panFactorRight;
                                 gainLeftF16P16 = gainMonoF16P16 * v->panFactorLeft;
                                 gainRightF16P16 = gainMonoF16P16 * v->panFactorRight;
 				while (blockSamples-- && tmpSourceSamplePositionF24P8 < tmpSampleEndF24P8)
 				{
-					unsigned int pos = (unsigned int)tmpSourceSamplePositionF24P8;
-                                        unsigned int nextPos = (pos >= tmpLoopEndF24P8 && isLooping ? tmpLoopStartF24P8 : pos + (1 << 8));
+					fixed24p8 pos = (unsigned int)tmpSourceSamplePositionF24P8;
+//                                        fixed24p8 nextPos = (pos >= tmpLoopEndF24P8 && isLooping ? tmpLoopStartF24P8 : pos + (1 << 8));
 
 //					// Simple linear interpolation.
 //					float alpha = (float)(tmpSourceSamplePosition - pos), val = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
-                                        short val = input[pos >> 8];
+                                        fixed16p16 val = input[pos >> 8];
 
 					// Low-pass filter.
 					//if (tmpLowpass.active) val = tsf_voice_lowpass_process(&tmpLowpass, val);
 
-					*outL++ += val * gainLeft;
-					*outL++ += val * gainRight;
+                                        // Do saturating adds for each channel
+                                        fixed16p16 smp;
+
+                                        smp = *outL;
+                                        smp += (val * gainLeftF16P16) >> 16;
+                                        if (smp > 32767) smp = 32767;
+                                        else if (smp < -32767) smp = -32767;
+                                        *outL++ = smp;
+
+                                        smp = *outL;
+                                        smp += (val * gainRightF16P16) >> 16;
+                                        if (smp > 32767) smp = 32767;
+                                        else if (smp < -32767) smp = -32767;
+                                        *outL++ = smp;
+
+
+//					*outL++ += val * gainLeft;
+//					*outL++ += val * gainRight;
 
 					// Next sample.
 					tmpSourceSamplePositionF24P8 += pitchRatioF16P16 >> 8;
