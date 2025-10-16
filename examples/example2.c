@@ -14,6 +14,8 @@ static ma_mutex g_Mutex;
 
 #include "dump.h"
 
+FILE *f;
+
 // Callback function called by the audio thread
 static void AudioCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
@@ -24,12 +26,15 @@ static void AudioCallback(ma_device* pDevice, void* pOutput, const void* pInput,
 #else
         tsf_render_short(g_TinySoundFont, (short*)pOutput, (int)frameCount, 0);
 #endif
+        fwrite(pOutput, frameCount, sizeof(short), f);
 	ma_mutex_unlock(&g_Mutex);
 }
 
 int main(int argc, char *argv[])
 {
 	int i, Notes[7] = { 48, 50, 52, 53, 55, 57, 59 };
+
+f=fopen("raw.bin", "wb");
 
 	// Define the desired audio output format we request
 	ma_device device;
@@ -88,7 +93,7 @@ int main(int argc, char *argv[])
 	}
 
 	ma_device_uninit(&device);
-
+fclose(f);
 	// We could call tsf_close(g_TinySoundFont) and ma_mutex_uninit(&g_Mutex)
 	// here to free the memory and resources but we just let the OS clean up
 	// because the process ends here.
