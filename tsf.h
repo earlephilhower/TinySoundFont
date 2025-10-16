@@ -59,13 +59,21 @@ extern "C" {
 #define TSFDEF extern
 #endif
 
+// Define this to disable any load infra and use a precompiled SF2 header
+#ifdef TSF_CONST_FILE
+#define TSF_CONST const
+#else
+#define TSF_CONST
+#endif
+
 // The load functions will return a pointer to a struct tsf which all functions
 // thereafter take as the first parameter.
 // On error the tsf_load* functions will return NULL most likely due to invalid
 // data (or if the file did not exist in tsf_load_filename).
 typedef struct tsf tsf;
 
-#ifndef TSF_NO_STDIO
+#ifndef TSF_CONST_FILE
+#if !defined(TSF_NO_STDIO
 // Directly load a SoundFont from a .sf2 file path
 TSFDEF tsf* tsf_load_filename(const char* filename);
 #endif
@@ -88,6 +96,7 @@ struct tsf_stream
 
 // Generic SoundFont loading method using the stream structure above
 TSFDEF tsf* tsf_load(struct tsf_stream* stream);
+#endif
 
 // Copy a tsf instance from an existing one, use tsf_close to close it as well.
 // All copied tsf instances and their original instance are linked, and share the underlying soundfont.
@@ -330,8 +339,8 @@ typedef char tsf_char20[20];
 struct tsf
 {
 	struct tsf_preset* presets;
-	float* fontSamples;
-	short* shortSamples;
+	TSF_CONST float* fontSamples;
+	TSF_CONST short* shortSamples;
         int samplesNum;
 	struct tsf_voice* voices;
 	struct tsf_channels* channels;
@@ -347,6 +356,7 @@ struct tsf
 	int* refCount;
 };
 
+#ifndef TSF_CONST_FILE
 #ifndef TSF_NO_STDIO
 static int tsf_stream_stdio_read(FILE* f, void* ptr, unsigned int size) { return (int)fread(ptr, 1, size, f); }
 static int tsf_stream_stdio_skip(FILE* f, unsigned int count) { return !fseek(f, count, SEEK_CUR); }
@@ -383,6 +393,7 @@ TSFDEF tsf* tsf_load_memory(const void* buffer, int size)
 	stream.data = &f;
 	return tsf_load(&stream);
 }
+#endif
 
 enum { TSF_LOOPMODE_NONE, TSF_LOOPMODE_CONTINUOUS, TSF_LOOPMODE_SUSTAIN };
 
@@ -407,6 +418,7 @@ struct tsf_hydra_imod { tsf_u16 modSrcOper, modDestOper; tsf_s16 modAmount; tsf_
 struct tsf_hydra_igen { tsf_u16 genOper; union tsf_hydra_genamount genAmount; };
 struct tsf_hydra_shdr { tsf_char20 sampleName; tsf_u32 start, end, startLoop, endLoop, sampleRate; tsf_u8 originalPitch; tsf_s8 pitchCorrection; tsf_u16 sampleLink, sampleType; };
 
+#ifndef TSF_CONST_FILE
 #define TSFR(FIELD) stream->read(stream->data, &i->FIELD, sizeof(i->FIELD));
 static void tsf_hydra_read_phdr(struct tsf_hydra_phdr* i, struct tsf_stream* stream) { TSFR(presetName) TSFR(preset) TSFR(bank) TSFR(presetBagNdx) TSFR(library) TSFR(genre) TSFR(morphology) }
 static void tsf_hydra_read_pbag(struct tsf_hydra_pbag* i, struct tsf_stream* stream) { TSFR(genNdx) TSFR(modNdx) }
@@ -418,6 +430,7 @@ static void tsf_hydra_read_imod(struct tsf_hydra_imod* i, struct tsf_stream* str
 static void tsf_hydra_read_igen(struct tsf_hydra_igen* i, struct tsf_stream* stream) { TSFR(genOper) TSFR(genAmount) }
 static void tsf_hydra_read_shdr(struct tsf_hydra_shdr* i, struct tsf_stream* stream) { TSFR(sampleName) TSFR(start) TSFR(end) TSFR(startLoop) TSFR(endLoop) TSFR(sampleRate) TSFR(originalPitch) TSFR(pitchCorrection) TSFR(sampleLink) TSFR(sampleType) }
 #undef TSFR
+#endif
 
 struct tsf_riffchunk { tsf_fourcc id; tsf_u32 size; };
 struct tsf_envelope { float delay, attack, hold, decay, sustain, release, keynumToHold, keynumToDecay; };
@@ -482,6 +495,7 @@ static float tsf_cents2Hertz(float cents) { return 8.176f * TSF_POWF(2.0f, cents
 static float tsf_decibelsToGain(float db) { return (db > -100.f ? TSF_POWF(10.0f, db * 0.05f) : 0); }
 static float tsf_gainToDecibels(float gain) { return (gain <= .00001f ? -100.f : (float)(20.0 * TSF_LOG10(gain))); }
 
+#ifndef TSF_CONST_FILE
 static TSF_BOOL tsf_riffchunk_read(struct tsf_riffchunk* parent, struct tsf_riffchunk* chunk, struct tsf_stream* stream)
 {
 	TSF_BOOL IsRiff, IsList;
@@ -687,7 +701,9 @@ static void tsf_region_operator(struct tsf_region* region, tsf_u16 genOper, unio
 		}
 	}
 }
+#endif
 
+#ifndef TSF_CONST_FILE
 static void tsf_region_envtosecs(struct tsf_envelope* p, TSF_BOOL sustainIsGain)
 {
 	// EG times need to be converted from timecents to seconds.
@@ -865,6 +881,7 @@ static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int font
 	}
 	return 1;
 }
+#endif
 
 #ifdef STB_VORBIS_INCLUDE_STB_VORBIS_H
 static int tsf_decode_ogg(const tsf_u8 *pSmpl, const tsf_u8 *pSmplEnd, float** pRes, tsf_u32* pResNum, tsf_u32* pResMax, tsf_u32 resInitial)
@@ -974,7 +991,8 @@ static int tsf_decode_sf3_samples(const void* rawBuffer, float** pFloatBuffer, u
 }
 #endif
 
-static int tsf_load_samples(void** pRawBuffer, float** pFloatBuffer, short **pShortBuffer, unsigned int* pSmplCount, struct tsf_riffchunk *chunkSmpl, struct tsf_stream* stream)
+#ifndef TSF_CONST_FILE
+static int tsf_load_samples(void** pRawBuffer, const float** pFloatBuffer, const short ** pShortBuffer, unsigned int* pSmplCount, struct tsf_riffchunk *chunkSmpl, struct tsf_stream* stream)
 {
 	#ifdef STB_VORBIS_INCLUDE_STB_VORBIS_H
 	// With OGG Vorbis support we cannot pre-allocate the memory for tsf_decode_sf3_samples
@@ -1005,6 +1023,7 @@ static int tsf_load_samples(void** pRawBuffer, float** pFloatBuffer, short **pSh
 	return 1;
 	#endif
 }
+#endif
 
 static int tsf_voice_envelope_release_samples(struct tsf_voice_envelope* e, float outSampleRate)
 {
@@ -1224,7 +1243,7 @@ static void tsf_voice_calcpitchratio(struct tsf_voice* v, float pitchShift, floa
 static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, int numSamples)
 {
 	struct tsf_region* region = v->region;
-	float* input = f->fontSamples;
+	const float* input = f->fontSamples;
 	float* outL = outputBuffer;
 	float* outR = (f->outputmode == TSF_STEREO_UNWEAVED ? outL + numSamples : TSF_NULL);
 
@@ -1362,6 +1381,7 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 	if (tmpLowpass.active || dynamicLowpass) v->lowpass = tmpLowpass;
 }
 
+#ifndef TSF_CONST_FILE
 TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 {
 	tsf* res = TSF_NULL;
@@ -1369,8 +1389,8 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 	struct tsf_riffchunk chunkList;
 	struct tsf_hydra hydra;
 	void* rawBuffer = TSF_NULL;
-	float* floatBuffer = TSF_NULL;
-	short* shortBuffer = TSF_NULL;
+	TSF_CONST float* floatBuffer = TSF_NULL;
+	TSF_CONST short* shortBuffer = TSF_NULL;
 	tsf_u32 smplCount = 0;
 
 	if (!tsf_riffchunk_read(TSF_NULL, &chunkHead, stream) || !TSF_FourCCEquals(chunkHead.id, "sfbk"))
@@ -1461,6 +1481,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 	TSF_FREE(rawBuffer);   TSF_FREE(floatBuffer);
 	return res;
 }
+#endif
 
 TSFDEF tsf* tsf_copy(tsf* f)
 {
@@ -1490,7 +1511,10 @@ TSFDEF void tsf_close(tsf* f)
 		struct tsf_preset *preset = f->presets, *presetEnd = preset + f->presetNum;
 		for (; preset != presetEnd; preset++) TSF_FREE(preset->regions);
 		TSF_FREE(f->presets);
-		TSF_FREE(f->fontSamples);
+#ifndef TSF_CONST_FILE
+                TSF_FREE(f->fontSamples);
+                TSF_FREE(f->shortSamples);
+#endif
 		TSF_FREE(f->refCount);
 	}
 	TSF_FREE(f->channels);

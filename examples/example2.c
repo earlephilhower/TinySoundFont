@@ -1,6 +1,7 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio_io.h"
 
+#define TSF_CONST_FILE
 #define TSF_IMPLEMENTATION
 #include "../tsf.h"
 
@@ -9,6 +10,8 @@ static tsf* g_TinySoundFont;
 
 // A Mutex so we don't call note_on/note_off while rendering audio samples
 static ma_mutex g_Mutex;
+
+#include "dump.h"
 
 // Callback function called by the audio thread
 static void AudioCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
@@ -40,7 +43,8 @@ int main(int argc, char *argv[])
 	}
 
 	// Load the SoundFont from a file
-	g_TinySoundFont = tsf_load_filename("florestan-subset.sf2");
+	g_TinySoundFont = &_tsf;
+        //tsf_load_filename("florestan-subset.sf2");
 	if (!g_TinySoundFont)
 	{
 		fprintf(stderr, "Could not load SoundFont\n");
