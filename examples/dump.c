@@ -48,7 +48,7 @@ void dump_presets(const struct tsf_preset *p, int cnt) {
         fprintf(dump, "};\n");
     }
 
-    fprintf(dump, "static struct tsf_preset presets[] = {\n");
+    fprintf(dump, "static const struct tsf_preset presets[] = {\n");
     for (int idx=0; idx < cnt; idx++) {
         fprintf(dump, "{\n");
         fprintf(dump, " .presetName=%s,\n", dump_char20(p[idx].presetName));

@@ -338,7 +338,7 @@ typedef char tsf_char20[20];
 
 struct tsf
 {
-	struct tsf_preset* presets;
+	TSF_CONST struct tsf_preset* presets;
 	TSF_CONST float* fontSamples;
 	TSF_CONST short* shortSamples;
         int samplesNum;
@@ -1511,9 +1511,7 @@ TSFDEF void tsf_close(tsf* f)
 #ifndef TSF_CONST_FILE
 		struct tsf_preset *preset = f->presets, *presetEnd = preset + f->presetNum;
 		for (; preset != presetEnd; preset++) TSF_FREE(preset->regions);
-#endif
 		TSF_FREE(f->presets);
-#ifndef TSF_CONST_FILE
                 TSF_FREE(f->fontSamples);
                 TSF_FREE(f->shortSamples);
 #endif

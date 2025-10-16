@@ -1137,7 +1137,7 @@ static const struct tsf_region preset_16_regions[] = {
 }
 ,
 };
-static struct tsf_preset presets[] = {
+static const struct tsf_preset presets[] = {
 {
  .presetName={80,105,97,110,111,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
  .preset=2, .bank=0,
