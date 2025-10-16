@@ -331,6 +331,8 @@ struct tsf
 {
 	struct tsf_preset* presets;
 	float* fontSamples;
+	short* shortSamples;
+        int samplesNum;
 	struct tsf_voice* voices;
 	struct tsf_channels* channels;
 
@@ -972,7 +974,7 @@ static int tsf_decode_sf3_samples(const void* rawBuffer, float** pFloatBuffer, u
 }
 #endif
 
-static int tsf_load_samples(void** pRawBuffer, float** pFloatBuffer, unsigned int* pSmplCount, struct tsf_riffchunk *chunkSmpl, struct tsf_stream* stream)
+static int tsf_load_samples(void** pRawBuffer, float** pFloatBuffer, short **pShortBuffer, unsigned int* pSmplCount, struct tsf_riffchunk *chunkSmpl, struct tsf_stream* stream)
 {
 	#ifdef STB_VORBIS_INCLUDE_STB_VORBIS_H
 	// With OGG Vorbis support we cannot pre-allocate the memory for tsf_decode_sf3_samples
@@ -996,6 +998,8 @@ static int tsf_load_samples(void** pRawBuffer, float** pFloatBuffer, unsigned in
 	*pSmplCount = chunkSmpl->size / (unsigned int)sizeof(short);
 	*pFloatBuffer = (float*)TSF_MALLOC(*pSmplCount * sizeof(float));
 	if (!*pFloatBuffer || !stream->read(stream->data, *pFloatBuffer, chunkSmpl->size)) return 0;
+	*pShortBuffer = (short*)TSF_MALLOC(*pSmplCount * sizeof(short));
+        memcpy(*pShortBuffer, *pFloatBuffer, chunkSmpl->size);
 	for (res = *pFloatBuffer, out = res + *pSmplCount, in = (short*)res + *pSmplCount; out != res;)
 		*(--out) = (float)(*(--in) / 32767.0);
 	return 1;
@@ -1366,6 +1370,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 	struct tsf_hydra hydra;
 	void* rawBuffer = TSF_NULL;
 	float* floatBuffer = TSF_NULL;
+	short* shortBuffer = TSF_NULL;
 	tsf_u32 smplCount = 0;
 
 	if (!tsf_riffchunk_read(TSF_NULL, &chunkHead, stream) || !TSF_FourCCEquals(chunkHead.id, "sfbk"))
@@ -1414,7 +1419,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 						#endif
 					) && !rawBuffer && !floatBuffer && chunk.size >= sizeof(short))
 				{
-					if (!tsf_load_samples(&rawBuffer, &floatBuffer, &smplCount, &chunk, stream)) goto out_of_memory;
+					if (!tsf_load_samples(&rawBuffer, &floatBuffer, &shortBuffer, &smplCount, &chunk, stream)) goto out_of_memory;
 				}
 				else stream->skip(stream->data, chunk.size);
 			}
@@ -1439,6 +1444,8 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		if (!res || !tsf_load_presets(res, &hydra, smplCount)) goto out_of_memory;
 		res->outSampleRate = 44100.0f;
 		res->fontSamples = floatBuffer;
+                res->shortSamples = shortBuffer;
+                res->samplesNum = smplCount;
 		floatBuffer = TSF_NULL; // don't free below
 	}
 	if (0)
