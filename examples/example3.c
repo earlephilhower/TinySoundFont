@@ -2,7 +2,12 @@
 #include "miniaudio_io.h"
 
 #define TSF_IMPLEMENTATION
+#define TSF_CONST_FILE
+#define TSF_SAMPLES_SHORT
+
 #include "../tsf.h"
+
+#include "dump.h"
 
 #define TML_IMPLEMENTATION
 #include "../tml.h"
@@ -17,7 +22,7 @@ static tml_message* g_MidiMessage;  //next message to be played
 // Callback function called by the audio thread
 static void AudioCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-	float* stream = (float*)pOutput;
+	short* stream = (short*)pOutput;
 	for (ma_uint32 SampleBlock = TSF_RENDER_EFFECTSAMPLEBLOCK; frameCount; frameCount -= SampleBlock, stream += SampleBlock * 2) // 2 channel output
 	{
 		//We progress the MIDI playback and then process TSF_RENDER_EFFECTSAMPLEBLOCK samples at once
@@ -47,7 +52,7 @@ static void AudioCallback(ma_device* pDevice, void* pOutput, const void* pInput,
 		}
 
 		// Render the block of audio samples in float format
-		tsf_render_float(g_TinySoundFont, stream, (int)SampleBlock, 0);
+		tsf_render_short(g_TinySoundFont, stream, (int)SampleBlock, 0);
 	}
 }
 
@@ -64,7 +69,7 @@ int main(int argc, char *argv[])
 	ma_device device;
 	ma_device_config deviceConfig;
 	deviceConfig = ma_device_config_init(ma_device_type_playback);
-	deviceConfig.playback.format = ma_format_f32;
+	deviceConfig.playback.format = ma_format_s16; //f32;
 	deviceConfig.playback.channels = 2;
 	deviceConfig.sampleRate = 44100;
 	deviceConfig.dataCallback = AudioCallback;
@@ -90,7 +95,9 @@ int main(int argc, char *argv[])
 	g_MidiMessage = TinyMidiLoader;
 
 	// Load the SoundFont from a file
-	g_TinySoundFont = tsf_load_filename(
+	g_TinySoundFont =  &_tsf;
+#if 0
+        tsf_load_filename(
 		(argc >= 3 ? argv[2] : "florestan-subset.sf2")
 	);
 	if (!g_TinySoundFont)
@@ -98,7 +105,7 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Could not load SoundFont\n");
 		return 1;
 	}
-
+#endif
 	//Initialize preset on special 10th MIDI channel to use percussion sound bank (128) if available
 	tsf_channel_set_bank_preset(g_TinySoundFont, 9, 128, 0);
 

@@ -68,6 +68,7 @@ extern "C" {
 
 // Define this to use 16 fixed point samples instead of floating point
 #ifdef TSF_SAMPLES_SHORT
+#include <stdint.h>
 typedef int64_t fixed32p32;
 typedef int32_t fixed30p2;
 typedef int32_t fixed24p8;
@@ -363,7 +364,11 @@ struct tsf
 	unsigned int voicePlayIndex;
 
 	enum TSFOutputMode outputmode;
+#ifndef TSF_SAMPLES_SHORT
 	float outSampleRate;
+#else
+        int outSampleRate;
+#endif
 	float globalGainDB;
 	int* refCount;
 };
@@ -488,7 +493,9 @@ struct tsf_voice
 	float  noteGainDB, panFactorLeft, panFactorRight;
 	unsigned int playIndex, loopStart, loopEnd;
 	struct tsf_voice_envelope ampenv, modenv;
-	struct tsf_voice_lowpass lowpass;
+#ifndef TSF_SAMPLES_SHORT
+        struct tsf_voice_lowpass lowpass;
+#endif
 	struct tsf_voice_lfo modlfo, viblfo;
 };
 
@@ -1217,7 +1224,7 @@ static void tsf_voice_envelope_process(struct tsf_voice_envelope* e, int numSamp
 	if ((e->samplesUntilNextSegment -= numSamples) <= 0)
 		tsf_voice_envelope_nextsegment(e, e->segment, outSampleRate);
 }
-
+#ifndef TSF_SAMPLES_SHORT
 static void tsf_voice_lowpass_setup(struct tsf_voice_lowpass* e, float Fc)
 {
 	// Lowpass filter from http://www.earlevel.com/main/2012/11/26/biquad-c-source-code/
@@ -1233,7 +1240,7 @@ static float tsf_voice_lowpass_process(struct tsf_voice_lowpass* e, double In)
 {
 	double Out = In * e->a0 + e->z1; e->z1 = In * e->a1 + e->z2 - e->b1 * Out; e->z2 = In * e->a0 - e->b2 * Out; return (float)Out;
 }
-
+#endif
 static void tsf_voice_lfo_setup(struct tsf_voice_lfo* e, float delay, int freqCents, float outSampleRate)
 {
 	e->samplesUntil = (int)(delay * outSampleRate);
@@ -1441,7 +1448,7 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 	TSF_CONST struct tsf_region* region = v->region;
         TSF_CONST short* input = f->shortSamples;
 	short* outL = outputBuffer;
-	short* outR = (f->outputmode == TSF_STEREO_UNWEAVED ? outL + numSamples : TSF_NULL);
+	//short* outR = (f->outputmode == TSF_STEREO_UNWEAVED ? outL + numSamples : TSF_NULL);
 
 	// Cache some values, to give them at least some chance of ending up in registers.
 	TSF_BOOL updateModEnv = (region->modEnvToPitch || region->modEnvToFilterFc);
@@ -1456,10 +1463,10 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 //	double tmpSampleEndDbl = (double)region->end, tmpLoopEndDbl = (double)tmpLoopEnd + 1.0;
         fixed24p8 tmpSourceSamplePositionF24P8 = v->sourceSamplePositionF24P8;
 //	double tmpSourceSamplePosition = v->sourceSamplePosition;
-	struct tsf_voice_lowpass tmpLowpass = v->lowpass;
+	//struct tsf_voice_lowpass tmpLowpass = v->lowpass;
 
-	TSF_BOOL dynamicLowpass = (region->modLfoToFilterFc || region->modEnvToFilterFc);
-	float tmpSampleRate = f->outSampleRate, tmpInitialFilterFc, tmpModLfoToFilterFc, tmpModEnvToFilterFc;
+//	TSF_BOOL dynamicLowpass = (region->modLfoToFilterFc || region->modEnvToFilterFc);
+	float tmpSampleRate = f->outSampleRate; //, tmpInitialFilterFc, tmpModLfoToFilterFc, tmpModEnvToFilterFc;
 
 	TSF_BOOL dynamicPitchRatio = (region->modLfoToPitch || region->modEnvToPitch || region->vibLfoToPitch);
         fixed16p16 pitchRatioF16P16;
@@ -1605,7 +1612,7 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 	}
 
 	v->sourceSamplePositionF24P8 = tmpSourceSamplePositionF24P8;
-	if (tmpLowpass.active || dynamicLowpass) v->lowpass = tmpLowpass;
+	//if (tmpLowpass.active || dynamicLowpass) v->lowpass = tmpLowpass;
 }
 #endif
 
@@ -1828,7 +1835,10 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 	voicePlayIndex = f->voicePlayIndex++;
 	for (region = f->presets[preset_index].regions, regionEnd = region + f->presets[preset_index].regionNum; region != regionEnd; region++)
 	{
-		struct tsf_voice *voice, *v, *vEnd; TSF_BOOL doLoop; float lowpassFilterQDB, lowpassFc;
+		struct tsf_voice *voice, *v, *vEnd; TSF_BOOL doLoop;
+#ifndef TSF_SAMPLES_SHORT
+                float lowpassFilterQDB, lowpassFc;
+#endif
 		if (key < region->lokey || key > region->hikey || midiVelocity < region->lovel || midiVelocity > region->hivel) continue;
 
 		voice = TSF_NULL, v = f->voices, vEnd = v + f->voiceNum;
@@ -1911,14 +1921,15 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 		tsf_voice_envelope_setup(&voice->ampenv, &region->ampenv, key, midiVelocity, TSF_TRUE, f->outSampleRate);
 		tsf_voice_envelope_setup(&voice->modenv, &region->modenv, key, midiVelocity, TSF_FALSE, f->outSampleRate);
 
+#ifndef TSF_SAMPLES_SHORT
 		// Setup lowpass filter.
 		lowpassFc = (region->initialFilterFc <= 13500 ? tsf_cents2Hertz((float)region->initialFilterFc) / f->outSampleRate : 1.0f);
 		lowpassFilterQDB = region->initialFilterQ / 10.0f;
 		voice->lowpass.QInv = 1.0 / TSF_POW(10.0, (lowpassFilterQDB / 20.0));
 		voice->lowpass.z1 = voice->lowpass.z2 = 0;
 		voice->lowpass.active = (lowpassFc < 0.499f);
-		if (voice->lowpass.active) tsf_voice_lowpass_setup(&voice->lowpass, lowpassFc);
-
+                if (voice->lowpass.active) tsf_voice_lowpass_setup(&voice->lowpass, lowpassFc);
+#endif
 		// Setup LFO filters.
 		tsf_voice_lfo_setup(&voice->modlfo, region->delayModLFO, region->freqModLFO, f->outSampleRate);
 		tsf_voice_lfo_setup(&voice->viblfo, region->delayVibLFO, region->freqVibLFO, f->outSampleRate);

@@ -61,8 +61,8 @@ void dump_presets(const struct tsf_preset *p, int cnt) {
    fprintf(dump, "};\n");
 }
 
-void dump_samples(const short *s, const float *f, int cnt) {
 #ifdef TSF_SAMPLES_SHORT
+void dump_shortsamples(const short *s, int cnt) {
     fprintf(dump, "static const short shortSamples[%d] = {\n", cnt);
     for (int i=0; i <cnt; i++) {
         if ((i%16) == 15) {
@@ -71,7 +71,9 @@ void dump_samples(const short *s, const float *f, int cnt) {
         fprintf(dump, "%d, ", s[i]);
     }
     fprintf(dump, "\n};\n");
+}
 #else
+void dump_shortsamples(const float *f, int cnt) {
     fprintf(dump, "static const float fontSamples[%d] = {\n", cnt);
     for (int i=0; i <cnt; i++) {
         if ((i%16) == 15) {
@@ -80,18 +82,22 @@ void dump_samples(const short *s, const float *f, int cnt) {
         fprintf(dump, "%f, ", f[i]);
     }
     fprintf(dump, "\n};\n");
-#endif
 }
+#endif
 
 void dump_tsf(tsf* t) {
     dump = fopen("dump.h", "w");
    
     dump_presets(t->presets, t->presetNum);
-    dump_samples(t->shortSamples, t->fontSamples, t->samplesNum);
+#ifndef TSF_SAMPLES_SHORT
+    dump_fontsamples(t->fontSamples, t->samplesNum);
+#else
+    dump_shortsamples(t->shortSamples, t->samplesNum);
+#endif
 
     fprintf(dump, "struct tsf _tsf = {\n");
     fprintf(dump, " .presets = presets,\n");
-#indef TSF_SAMPLES_SHORT
+#ifndef TSF_SAMPLES_SHORT
     fprintf(dump, " .fontSamples = fontSamples,\n");
 #else
     fprintf(dump, " .shortSamples = shortSamples,\n");
