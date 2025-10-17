@@ -90,6 +90,7 @@ TSFDEF tsf* tsf_load_filename(const char* filename);
 
 // Load a SoundFont from a block of memory
 TSFDEF tsf* tsf_load_memory(const void* buffer, int size);
+#endif
 
 // Stream structure for the generic loading
 struct tsf_stream
@@ -104,6 +105,7 @@ struct tsf_stream
 	int (*skip)(void* data, unsigned int count);
 };
 
+#ifndef TSF_CONST_FILE
 // Generic SoundFont loading method using the stream structure above
 TSFDEF tsf* tsf_load(struct tsf_stream* stream);
 #endif
@@ -272,8 +274,7 @@ TSFDEF float tsf_channel_get_tuning(tsf* f, int channel);
 // ---------------------------------------------------------------------------------------------------------
 #endif //TSF_INCLUDE_TSF_INL
 
-#ifdef TSF_IMPLEMENTATION
-#undef TSF_IMPLEMENTATION
+#if defined(TSF_IMPLEMENTATION) || defined(TSF_HEADER)
 
 // The lower this block size is the more accurate the effects are.
 // Increasing the value significantly lowers the CPU usage of the voice rendering.
@@ -511,6 +512,23 @@ struct tsf_channels
 	int channelNum, activeChannel;
 	struct tsf_channel channels[1];
 };
+
+#ifdef __cplusplus
+#  undef CPP_DEFAULT0
+}
+#endif
+
+#endif // IMPL || HEADER
+
+#ifdef TSF_IMPLEMENTATION
+#undef TSF_IMPLEMENTATION
+
+#ifdef __cplusplus
+extern "C" {
+#  define CPP_DEFAULT0 = 0
+#else
+#  define CPP_DEFAULT0
+#endif
 
 static double tsf_timecents2Secsd(double timecents) { return TSF_POW(2.0, timecents / 1200.0); }
 static float tsf_timecents2Secsf(float timecents) { return TSF_POWF(2.0f, timecents / 1200.0f); }
@@ -1760,7 +1778,9 @@ TSFDEF void tsf_close(tsf* f)
 	}
 	TSF_FREE(f->channels);
 	TSF_FREE(f->voices);
+#ifndef TSF_SAMPLES_SHORT
 	TSF_FREE(f);
+#endif
 }
 
 TSFDEF void tsf_reset(tsf* f)
