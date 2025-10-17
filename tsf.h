@@ -454,7 +454,11 @@ struct tsf_riffchunk { tsf_fourcc id; tsf_u32 size; };
 struct tsf_envelope { float delay, attack, hold, decay, sustain, release, keynumToHold, keynumToDecay; };
 struct tsf_voice_envelope { unsigned char segment, segmentIsExponential : 1, isAmpEnv : 1; short midiVelocity; float level, slope; int samplesUntilNextSegment; struct tsf_envelope parameters; };
 struct tsf_voice_lowpass { double QInv, a0, a1, b1, b2, z1, z2; TSF_BOOL active; };
+#ifndef TSF_SAMPLES_SHORT
 struct tsf_voice_lfo { int samplesUntil; float level, delta; };
+#else
+struct tsf_voice_lfo { int samplesUntil; fixed16p16 levelF16P16, deltaF16P16; };
+#endif
 
 struct tsf_region
 {
@@ -1262,16 +1266,27 @@ static float tsf_voice_lowpass_process(struct tsf_voice_lowpass* e, double In)
 static void tsf_voice_lfo_setup(struct tsf_voice_lfo* e, float delay, int freqCents, float outSampleRate)
 {
 	e->samplesUntil = (int)(delay * outSampleRate);
+#ifndef TSF_SAMPLES_SHORT
 	e->delta = (4.0f * tsf_cents2Hertz((float)freqCents) / outSampleRate);
 	e->level = 0;
+#else
+        e->deltaF16P16 = (4.0f * 65536.0f * tsf_cents2Hertz((float)freqCents) / outSampleRate);
+        e->levelF16P16 = 0;
+#endif
 }
 
 static void tsf_voice_lfo_process(struct tsf_voice_lfo* e, int blockSamples)
 {
 	if (e->samplesUntil > blockSamples) { e->samplesUntil -= blockSamples; return; }
+#ifndef TSF_SAMPLES_SHORT
 	e->level += e->delta * blockSamples;
 	if      (e->level >  1.0f) { e->delta = -e->delta; e->level =  2.0f - e->level; }
 	else if (e->level < -1.0f) { e->delta = -e->delta; e->level = -2.0f - e->level; }
+#else
+        e->levelF16P16 += e->deltaF16P16 * blockSamples;
+        if      (e->levelF16P16 >  1 << 16) { e->deltaF16P16 = -e->deltaF16P16; e->levelF16P16 =  (2 << 16) - e->levelF16P16; }
+        else if (e->levelF16P16 < -1 << 16) { e->deltaF16P16 = -e->deltaF16P16; e->levelF16P16 = (-2 << 16) - e->levelF16P16; }
+#endif
 }
 
 static void tsf_voice_kill(struct tsf_voice* v)
@@ -1470,8 +1485,8 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 
 	// Cache some values, to give them at least some chance of ending up in registers.
 	TSF_BOOL updateModEnv = (region->modEnvToPitch || region->modEnvToFilterFc);
-	TSF_BOOL updateModLFO = (v->modlfo.delta && (region->modLfoToPitch || region->modLfoToFilterFc || region->modLfoToVolume));
-	TSF_BOOL updateVibLFO = (v->viblfo.delta && (region->vibLfoToPitch));
+	TSF_BOOL updateModLFO = (v->modlfo.deltaF16P16 && (region->modLfoToPitch || region->modLfoToFilterFc || region->modLfoToVolume));
+	TSF_BOOL updateVibLFO = (v->viblfo.deltaF16P16 && (region->vibLfoToPitch));
 	TSF_BOOL isLooping    = (v->loopStart < v->loopEnd);
         fixed24p8 tmpLoopStartF24P8 = v->loopStart << 8;
 //        fixed24p8 tmpLoopEndF24P8 = v->loopEnd << 8;
@@ -1489,7 +1504,7 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 	TSF_BOOL dynamicPitchRatio = (region->modLfoToPitch || region->modEnvToPitch || region->vibLfoToPitch);
         fixed16p16 pitchRatioF16P16;
 //	double pitchRatio;
-	float tmpModLfoToPitch, tmpVibLfoToPitch, tmpModEnvToPitch;
+	float tmpModLfoToPitchD16, tmpVibLfoToPitchD16, tmpModEnvToPitchD16;
 
 	TSF_BOOL dynamicGain = (region->modLfoToVolume != 0);
 	float noteGain = 0, tmpModLfoToVolume;
@@ -1497,8 +1512,8 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 //	if (dynamicLowpass) tmpInitialFilterFc = (float)region->initialFilterFc, tmpModLfoToFilterFc = (float)region->modLfoToFilterFc, tmpModEnvToFilterFc = (float)region->modEnvToFilterFc;
 //	else tmpInitialFilterFc = 0, tmpModLfoToFilterFc = 0, tmpModEnvToFilterFc = 0;
 
-	if (dynamicPitchRatio) pitchRatioF16P16 = 0, tmpModLfoToPitch = (float)region->modLfoToPitch, tmpVibLfoToPitch = (float)region->vibLfoToPitch, tmpModEnvToPitch = (float)region->modEnvToPitch;
-	else pitchRatioF16P16 = 65536 * tsf_timecents2Secsd(v->pitchInputTimecents) * v->pitchOutputFactor, tmpModLfoToPitch = 0, tmpVibLfoToPitch = 0, tmpModEnvToPitch = 0;
+	if (dynamicPitchRatio) pitchRatioF16P16 = 0, tmpModLfoToPitchD16 = (float)region->modLfoToPitch * (1.0f / 65536.0f), tmpVibLfoToPitchD16 = (float)region->vibLfoToPitch * (1.0f / 65536.0f), tmpModEnvToPitchD16 = (float)region->modEnvToPitch * (1.0f / 65536.0f);
+	else pitchRatioF16P16 = 65536 * tsf_timecents2Secsd(v->pitchInputTimecents) * v->pitchOutputFactor, tmpModLfoToPitchD16 = 0, tmpVibLfoToPitchD16 = 0, tmpModEnvToPitchD16 = 0;
 
 	if (dynamicGain) tmpModLfoToVolume = (float)region->modLfoToVolume * 0.1f;
 	else noteGain = tsf_decibelsToGain(v->noteGainDB), tmpModLfoToVolume = 0;
@@ -1519,10 +1534,10 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 //		}
 
 		if (dynamicPitchRatio)
-			pitchRatioF16P16 = 65536 * tsf_timecents2Secsd(v->pitchInputTimecents + (v->modlfo.level * tmpModLfoToPitch + v->viblfo.level * tmpVibLfoToPitch + v->modenv.level * tmpModEnvToPitch)) * v->pitchOutputFactor;
+			pitchRatioF16P16 = 65536 * tsf_timecents2Secsd(v->pitchInputTimecents + (v->modlfo.levelF16P16 * tmpModLfoToPitchD16 + v->viblfo.levelF16P16 * tmpVibLfoToPitchD16 + v->modenv.level * tmpModEnvToPitchD16)) * v->pitchOutputFactor;
 
 		if (dynamicGain)
-			noteGain = tsf_decibelsToGain(v->noteGainDB + (v->modlfo.level * tmpModLfoToVolume));
+			noteGain = tsf_decibelsToGain(v->noteGainDB + (v->modlfo.levelF16P16 * tmpModLfoToVolume * (1.0 / 65536.0)));
 
 //		gainMono = noteGain * v->ampenv.level;
                 gainMonoF16P16 = (noteGain * v->ampenv.level) * 65536.0;
