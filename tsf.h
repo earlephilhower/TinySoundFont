@@ -495,7 +495,12 @@ struct tsf_voice
 #else
         fixed24p8 sourceSamplePositionF24P8;
 #endif
-	float  noteGainDB, panFactorLeft, panFactorRight;
+	float  noteGainDB;
+#ifndef TSF_SAMPLES_SHORT
+        float panFactorLeft, panFactorRight;
+#else
+        fixed16p16 panFactorLeftF16P16, panFactorRightF16P16;
+#endif
 	unsigned int playIndex, loopStart, loopEnd;
 	struct tsf_voice_envelope ampenv, modenv;
 #ifndef TSF_SAMPLES_SHORT
@@ -1554,8 +1559,8 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 		{
 			case TSF_STEREO_INTERLEAVED:
 //				gainLeft = gainMono * v->panFactorLeft, gainRight = gainMono * v->panFactorRight;
-                                gainLeftF16P16 = gainMonoF16P16 * v->panFactorLeft;
-                                gainRightF16P16 = gainMonoF16P16 * v->panFactorRight;
+                                gainLeftF16P16 = (gainMonoF16P16 * v->panFactorLeftF16P16) >> 16;
+                                gainRightF16P16 = (gainMonoF16P16 * v->panFactorRightF16P16) >> 16;
 				while (blockSamples-- && tmpSourceSamplePositionF24P8 < tmpSampleEndF24P8)
 				{
 					fixed24p8 pos = (unsigned int)tmpSourceSamplePositionF24P8;
@@ -1936,8 +1941,13 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 		{
 			tsf_voice_calcpitchratio(voice, 0, f->outSampleRate);
 			// The SFZ spec is silent about the pan curve, but a 3dB pan law seems common. This sqrt() curve matches what Dimension LE does; Alchemy Free seems closer to sin(adjustedPan * pi/2).
-			voice->panFactorLeft  = TSF_SQRTF(0.5f - region->pan);
+#ifndef TSF_SAMPLES_SHORT
+                        voice->panFactorLeft  = TSF_SQRTF(0.5f - region->pan);
 			voice->panFactorRight = TSF_SQRTF(0.5f + region->pan);
+#else
+                        voice->panFactorLeftF16P16  = TSF_SQRTF(0.5f - region->pan) * 65536.0f;
+                        voice->panFactorRightF16P16 = TSF_SQRTF(0.5f + region->pan) * 65536.0f;
+#endif
 		}
 
 		// Offset/end.
@@ -2077,9 +2087,15 @@ static void tsf_channel_setup_voice(tsf* f, struct tsf_voice* v)
 	v->playingChannel = f->channels->activeChannel;
 	v->noteGainDB += c->gainDB;
 	tsf_voice_calcpitchratio(v, (c->pitchWheel == 8192 ? c->tuning : ((c->pitchWheel / 16383.0f * c->pitchRange * 2.0f) - c->pitchRange + c->tuning)), f->outSampleRate);
+#ifndef TSF_SAMPLES_SHORT
 	if      (newpan <= -0.5f) { v->panFactorLeft = 1.0f; v->panFactorRight = 0.0f; }
 	else if (newpan >=  0.5f) { v->panFactorLeft = 0.0f; v->panFactorRight = 1.0f; }
 	else { v->panFactorLeft = TSF_SQRTF(0.5f - newpan); v->panFactorRight = TSF_SQRTF(0.5f + newpan); }
+#else
+        if      (newpan <= -0.5f) { v->panFactorLeftF16P16 = 1 << 16; v->panFactorRightF16P16 = 0; }
+        else if (newpan >=  0.5f) { v->panFactorLeftF16P16 = 0; v->panFactorRightF16P16 = 1 << 16; }
+        else { v->panFactorLeftF16P16 = TSF_SQRTF(0.5f - newpan) * 65536.0f; v->panFactorRightF16P16 = TSF_SQRTF(0.5f + newpan) * 65536.0f; }
+#endif
 }
 
 static struct tsf_channel* tsf_channel_init(tsf* f, int channel)
@@ -2186,9 +2202,15 @@ TSFDEF int tsf_channel_set_pan(tsf* f, int channel, float pan)
 		if (v->playingPreset != -1 && v->playingChannel == channel)
 		{
 			float newpan = v->region->pan + pan - 0.5f;
+#ifndef TSF_SAMPLES_SHORT
 			if      (newpan <= -0.5f) { v->panFactorLeft = 1.0f; v->panFactorRight = 0.0f; }
 			else if (newpan >=  0.5f) { v->panFactorLeft = 0.0f; v->panFactorRight = 1.0f; }
 			else { v->panFactorLeft = TSF_SQRTF(0.5f - newpan); v->panFactorRight = TSF_SQRTF(0.5f + newpan); }
+#else
+                        if      (newpan <= -0.5f) { v->panFactorLeftF16P16 = 1 << 16; v->panFactorRightF16P16 = 0; }
+                        else if (newpan >=  0.5f) { v->panFactorLeftF16P16 = 0; v->panFactorRightF16P16 = 1 << 16; }
+                        else { v->panFactorLeftF16P16 = TSF_SQRTF(0.5f - newpan) * 65536.0f; v->panFactorRightF16P16 = TSF_SQRTF(0.5f + newpan) * 65536.0f; }
+#endif
 		}
 	c->panOffset = pan - 0.5f;
 	return 1;
