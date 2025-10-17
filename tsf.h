@@ -1513,7 +1513,7 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 //	else tmpInitialFilterFc = 0, tmpModLfoToFilterFc = 0, tmpModEnvToFilterFc = 0;
 
 	if (dynamicPitchRatio) pitchRatioF16P16 = 0, tmpModLfoToPitchD16 = (float)region->modLfoToPitch * (1.0f / 65536.0f), tmpVibLfoToPitchD16 = (float)region->vibLfoToPitch * (1.0f / 65536.0f), tmpModEnvToPitchD16 = (float)region->modEnvToPitch * (1.0f / 65536.0f);
-	else pitchRatioF16P16 = 65536 * tsf_timecents2Secsd(v->pitchInputTimecents) * v->pitchOutputFactor, tmpModLfoToPitchD16 = 0, tmpVibLfoToPitchD16 = 0, tmpModEnvToPitchD16 = 0;
+	else pitchRatioF16P16 = 65536.0f * tsf_timecents2Secsd(v->pitchInputTimecents) * v->pitchOutputFactor, tmpModLfoToPitchD16 = 0, tmpVibLfoToPitchD16 = 0, tmpModEnvToPitchD16 = 0;
 
 	if (dynamicGain) tmpModLfoToVolume = (float)region->modLfoToVolume * 0.1f;
 	else noteGain = tsf_decibelsToGain(v->noteGainDB), tmpModLfoToVolume = 0;
@@ -1534,13 +1534,13 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 //		}
 
 		if (dynamicPitchRatio)
-			pitchRatioF16P16 = 65536 * tsf_timecents2Secsd(v->pitchInputTimecents + (v->modlfo.levelF16P16 * tmpModLfoToPitchD16 + v->viblfo.levelF16P16 * tmpVibLfoToPitchD16 + v->modenv.level * tmpModEnvToPitchD16)) * v->pitchOutputFactor;
+			pitchRatioF16P16 = 65536.0f * tsf_timecents2Secsd(v->pitchInputTimecents + (v->modlfo.levelF16P16 * tmpModLfoToPitchD16 + v->viblfo.levelF16P16 * tmpVibLfoToPitchD16 + v->modenv.level * tmpModEnvToPitchD16)) * v->pitchOutputFactor;
 
 		if (dynamicGain)
-			noteGain = tsf_decibelsToGain(v->noteGainDB + (v->modlfo.levelF16P16 * tmpModLfoToVolume * (1.0 / 65536.0)));
+			noteGain = tsf_decibelsToGain(v->noteGainDB + (v->modlfo.levelF16P16 * tmpModLfoToVolume * (1.0f / 65536.0f)));
 
 //		gainMono = noteGain * v->ampenv.level;
-                gainMonoF16P16 = (noteGain * v->ampenv.level) * 65536.0;
+                gainMonoF16P16 = (noteGain * v->ampenv.level) * 65536.0f;
 
 		// Update EG.
 		tsf_voice_envelope_process(&v->ampenv, blockSamples, tmpSampleRate);
