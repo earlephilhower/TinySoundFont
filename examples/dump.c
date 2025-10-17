@@ -21,7 +21,7 @@ void dump_region(const struct tsf_region *r) {
     fprintf(dump, " .lokey=%u, .hikey=%u, .lovel=%u, .hivel=%u,\n", r->lokey, r->hikey, r->lovel, r->hivel);
     fprintf(dump, " .group=%u, .offset=%u, .end=%u, .loop_start=%u, .loop_end=%u,\n", r->group, r->offset, r->end, r->loop_start, r->loop_end);
     fprintf(dump, " .transpose=%d, .tune=%d, .pitch_keycenter=%d, .pitch_keytrack=%d,\n", r->transpose, r->tune, r->pitch_keycenter, r->pitch_keytrack);
-    fprintf(dump, " .attenuation=%f, .pan=%f,\n", r->attenuation, r->pan);
+    fprintf(dump, " .attenuation=%f, .attenuationF16P16=%d, .pan=%f, .panF16P16 = %d\n", r->attenuation, (int)(r->attenuation * 65536.0), r->pan, (int)(r->pan * 65536.0));
     fprintf(dump, " .ampenv=%s,\n", dump_envelope(r->ampenv));
     fprintf(dump, " .modenv=%s,\n", dump_envelope(r->modenv));
     fprintf(dump, " .initialFilterQ=%d, .initialFilterFc=%d,\n", r->initialFilterQ,r-> initialFilterFc);
