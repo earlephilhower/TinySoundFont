@@ -1507,7 +1507,7 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 	float tmpModLfoToPitchD16, tmpVibLfoToPitchD16, tmpModEnvToPitchD16;
 
 	TSF_BOOL dynamicGain = (region->modLfoToVolume != 0);
-	float noteGain = 0, tmpModLfoToVolume;
+	float noteGain = 0, tmpModLfoToVolumeD16;
 
 //	if (dynamicLowpass) tmpInitialFilterFc = (float)region->initialFilterFc, tmpModLfoToFilterFc = (float)region->modLfoToFilterFc, tmpModEnvToFilterFc = (float)region->modEnvToFilterFc;
 //	else tmpInitialFilterFc = 0, tmpModLfoToFilterFc = 0, tmpModEnvToFilterFc = 0;
@@ -1515,8 +1515,8 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 	if (dynamicPitchRatio) pitchRatioF16P16 = 0, tmpModLfoToPitchD16 = (float)region->modLfoToPitch * (1.0f / 65536.0f), tmpVibLfoToPitchD16 = (float)region->vibLfoToPitch * (1.0f / 65536.0f), tmpModEnvToPitchD16 = (float)region->modEnvToPitch * (1.0f / 65536.0f);
 	else pitchRatioF16P16 = 65536.0f * tsf_timecents2Secsd(v->pitchInputTimecents) * v->pitchOutputFactor, tmpModLfoToPitchD16 = 0, tmpVibLfoToPitchD16 = 0, tmpModEnvToPitchD16 = 0;
 
-	if (dynamicGain) tmpModLfoToVolume = (float)region->modLfoToVolume * 0.1f;
-	else noteGain = tsf_decibelsToGain(v->noteGainDB), tmpModLfoToVolume = 0;
+	if (dynamicGain) tmpModLfoToVolumeD16 = (float)region->modLfoToVolume * 0.1f * (1.0f / 65536.0f);
+	else noteGain = tsf_decibelsToGain(v->noteGainDB), tmpModLfoToVolumeD16 = 0;
 
 	while (numSamples)
 	{
@@ -1537,7 +1537,7 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 			pitchRatioF16P16 = 65536.0f * tsf_timecents2Secsd(v->pitchInputTimecents + (v->modlfo.levelF16P16 * tmpModLfoToPitchD16 + v->viblfo.levelF16P16 * tmpVibLfoToPitchD16 + v->modenv.level * tmpModEnvToPitchD16)) * v->pitchOutputFactor;
 
 		if (dynamicGain)
-			noteGain = tsf_decibelsToGain(v->noteGainDB + (v->modlfo.levelF16P16 * tmpModLfoToVolume * (1.0f / 65536.0f)));
+			noteGain = tsf_decibelsToGain(v->noteGainDB + (v->modlfo.levelF16P16 * tmpModLfoToVolumeD16));
 
 //		gainMono = noteGain * v->ampenv.level;
                 gainMonoF16P16 = (noteGain * v->ampenv.level) * 65536.0f;
