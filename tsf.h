@@ -1593,13 +1593,13 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
                                         smp = *outL;
                                         smp += (val * gainLeftF16P16) >> 16;
                                         if (smp > 32767) smp = 32767;
-                                        else if (smp < -32767) smp = -32767;
+                                        else if (smp < -32768) smp = -32768;
                                         *outL++ = smp;
 
                                         smp = *outL;
                                         smp += (val * gainRightF16P16) >> 16;
                                         if (smp > 32767) smp = 32767;
-                                        else if (smp < -32767) smp = -32767;
+                                        else if (smp < -32768) smp = -32768;
                                         *outL++ = smp;
 
 
