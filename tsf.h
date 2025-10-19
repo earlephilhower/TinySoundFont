@@ -547,7 +547,11 @@ extern "C" {
 #  define CPP_DEFAULT0
 #endif
 
+#ifndef TSF_SAMPLES_SHORT
 static double tsf_timecents2Secsd(double timecents) { return TSF_POW(2.0, timecents / 1200.0); }
+#else
+static float tsf_timecents2Secsd(float timecents) { return TSF_POWF(2.0f, timecents / 1200.0f); }
+#endif
 static float tsf_timecents2Secsf(float timecents) { return TSF_POWF(2.0f, timecents / 1200.0f); }
 static float tsf_cents2Hertz(float cents) { return 8.176f * TSF_POWF(2.0f, cents / 1200.0f); }
 static float tsf_decibelsToGain(float db) { return (db > -100.f ? TSF_POWF(10.0f, db * 0.05f) : 0); }
