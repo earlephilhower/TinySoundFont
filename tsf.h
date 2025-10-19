@@ -42,6 +42,10 @@
 
 */
 
+#pragma GCC push_options
+#pragma GCC optimize ("O2")
+
+
 #ifndef TSF_INCLUDE_TSF_INL
 #define TSF_INCLUDE_TSF_INL
 
@@ -74,6 +78,12 @@ typedef int32_t fixed30p2;
 typedef int32_t fixed24p8;
 typedef int32_t fixed16p16;
 typedef int32_t fixed8p24;
+#if defined(ARDUINO_ARCH_RP2040) && defined(PICO_RP2350)
+#elif defined(PICO_RP2350) || defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32H4) || defined(CONFIG_IDF_TARGET_ESP32P4) // per https://developer.espressif.com/blog/2025/10/cores_with_fpu/
+#define TSF_RENDER_EFFECTSAMPLEBLOCK 64 // FPU
+#else
+#define TSF_RENDER_EFFECTSAMPLEBLOCK 256 // No FPU, can't run the analog oscillators too often
+#endif
 #endif
 
 // The load functions will return a pointer to a struct tsf which all functions
@@ -492,10 +502,11 @@ struct tsf_voice
 {
 	int playingPreset, playingKey, playingChannel, heldSustain;
 	TSF_CONST struct tsf_region* region;
-	double pitchInputTimecents, pitchOutputFactor;
 #ifndef TSF_SAMPLES_SHORT
+	double pitchInputTimecents, pitchOutputFactor;
 	double sourceSamplePosition;
 #else
+	float pitchInputTimecents, pitchOutputFactor;
         fixed24p8 sourceSamplePositionF24P8;
 #endif
 	float  noteGainDB;
@@ -1319,11 +1330,13 @@ static void tsf_voice_kill(struct tsf_voice* v)
 
 static void tsf_voice_end(tsf* f, struct tsf_voice* v)
 {
+#ifndef TSF_SAMPLES_SHORT
 	// if maxVoiceNum is set, assume that voice rendering and note queuing are on separate threads
 	// so to minimize the chance that voice rendering would advance the segment at the same time
 	// we just do it twice here and hope that it sticks
 	int repeats = (f->maxVoiceNum ? 2 : 1);
 	while (repeats--)
+#endif
 	{
 		tsf_voice_envelope_nextsegment(&v->ampenv, TSF_SEGMENT_SUSTAIN, f->outSampleRate);
 		tsf_voice_envelope_nextsegment(&v->modenv, TSF_SEGMENT_SUSTAIN, f->outSampleRate);
@@ -1337,11 +1350,13 @@ static void tsf_voice_end(tsf* f, struct tsf_voice* v)
 
 static void tsf_voice_endquick(tsf* f, struct tsf_voice* v)
 {
+#ifndef TSF_SAMPLES_SHORT
 	// if maxVoiceNum is set, assume that voice rendering and note queuing are on separate threads
 	// so to minimize the chance that voice rendering would advance the segment at the same time
 	// we just do it twice here and hope that it sticks
 	int repeats = (f->maxVoiceNum ? 2 : 1);
 	while (repeats--)
+#endif
 	{
 		v->ampenv.parameters.release = 0.0f; tsf_voice_envelope_nextsegment(&v->ampenv, TSF_SEGMENT_SUSTAIN, f->outSampleRate);
 		v->modenv.parameters.release = 0.0f; tsf_voice_envelope_nextsegment(&v->modenv, TSF_SEGMENT_SUSTAIN, f->outSampleRate);
@@ -1350,8 +1365,13 @@ static void tsf_voice_endquick(tsf* f, struct tsf_voice* v)
 
 static void tsf_voice_calcpitchratio(struct tsf_voice* v, float pitchShift, float outSampleRate)
 {
+#ifndef TSF_SAMPLES_SHORT
 	double note = v->playingKey + v->region->transpose + v->region->tune / 100.0;
 	double adjustedPitch = v->region->pitch_keycenter + (note - v->region->pitch_keycenter) * (v->region->pitch_keytrack / 100.0);
+#else
+        float note = v->playingKey + v->region->transpose + v->region->tune / 100.0f;
+        float adjustedPitch = v->region->pitch_keycenter + (note - v->region->pitch_keycenter) * (v->region->pitch_keytrack / 100.0f);
+#endif
 	if (pitchShift) adjustedPitch += pitchShift;
 	v->pitchInputTimecents = adjustedPitch * 100.0;
 	v->pitchOutputFactor = v->region->sample_rate / (tsf_timecents2Secsd(v->region->pitch_keycenter * 100.0) * outSampleRate);
@@ -1997,7 +2017,11 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 		tsf_voice_lfo_setup(&voice->modlfo, region->delayModLFO, region->freqModLFO, f->outSampleRate);
 		tsf_voice_lfo_setup(&voice->viblfo, region->delayVibLFO, region->freqVibLFO, f->outSampleRate);
 	}
+//#ifndef TSF_SAMPLES_SHORT
 	return 1;
+//#else
+//        return voicePlayIndex + 1;
+//#endif
 }
 
 TSFDEF int tsf_bank_note_on(tsf* f, int bank, int preset_number, int key, float vel)
@@ -2026,6 +2050,26 @@ TSFDEF void tsf_note_off(tsf* f, int preset_index, int key)
 		tsf_voice_end(f, v);
 	}
 }
+
+#if 0
+// Less than 0.5% speed difference seen w/fast
+/**
+ * Stops all voices with the given playing index. If no key provided or if -1, fallbacks to tsf_note_off
+ */
+TSFDEF void tsf_note_off_fast(tsf* f, int preset_index, int key, int playIndex = -1)
+{
+  if (playIndex < 0) {
+      tsf_note_off(f, preset_index, key);
+  } else {
+      playIndex--;
+      for (struct tsf_voice *v = f->voices, *vEnd = v + f->voiceNum; v != vEnd; v++) {
+          if (v->playIndex == playIndex && v->playingPreset == preset_index && v->playingKey == key && v->ampenv.segment < TSF_SEGMENT_RELEASE) {
+            tsf_voice_end(f, v);
+          }
+      }
+  }
+}
+#endif
 
 TSFDEF int tsf_bank_note_off(tsf* f, int bank, int preset_number, int key)
 {
@@ -2453,3 +2497,5 @@ TSFDEF float tsf_channel_get_tuning(tsf* f, int channel)
 #endif
 
 #endif //TSF_IMPLEMENTATION
+
+#pragma GCC pop_options
