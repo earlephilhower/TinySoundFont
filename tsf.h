@@ -1333,7 +1333,7 @@ static void tsf_voice_lfo_process(struct tsf_voice_lfo* e, int blockSamples)
 #else
         e->levelF16P16 += e->deltaF16P16 * blockSamples;
         if      (e->levelF16P16 >  1 << 16) { e->deltaF16P16 = -e->deltaF16P16; e->levelF16P16 =  (2 << 16) - e->levelF16P16; }
-        else if (e->levelF16P16 < -1 << 16) { e->deltaF16P16 = -e->deltaF16P16; e->levelF16P16 = (-2 << 16) - e->levelF16P16; }
+        else if (e->levelF16P16 < -(1 << 16)) { e->deltaF16P16 = -e->deltaF16P16; e->levelF16P16 = -(2 << 16) - e->levelF16P16; }
 #endif
 }
 
@@ -1884,7 +1884,7 @@ TSFDEF int tsf_get_presetindex(const tsf* f, int bank, int preset_number)
 	const struct tsf_preset *presets;
 	int i, iMax;
 	for (presets = f->presets, i = 0, iMax = f->presetNum; i < iMax; i++)
-		if (presets[i].preset == preset_number && presets[i].bank == bank)
+		if (presets[i].preset == (tsf_u32)preset_number && presets[i].bank == (tsf_u32)bank)
 			return i;
 	return -1;
 }
@@ -1946,7 +1946,7 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 #ifndef TSF_SAMPLES_SHORT
                 float lowpassFilterQDB, lowpassFc;
 #endif
-		if (key < region->lokey || key > region->hikey || midiVelocity < region->lovel || midiVelocity > region->hivel) continue;
+		if (key < (int)region->lokey || key > (int)region->hikey || midiVelocity < (int)region->lovel || midiVelocity > (int)region->hivel) continue;
 
 		voice = TSF_NULL, v = f->voices, vEnd = v + f->voiceNum;
 		if (region->group)
@@ -2184,7 +2184,7 @@ static void tsf_channel_setup_voice(tsf* f, struct tsf_voice* v)
 	else { v->panFactorLeft = TSF_SQRTF(0.5f - newpan); v->panFactorRight = TSF_SQRTF(0.5f + newpan); }
 #else
         fixed16p16 newpan = v->region->panF16P16 + c->panOffsetF16P16;
-        if      (newpan <= -1 << 15) { v->panFactorLeftF16P16 = 1 << 16; v->panFactorRightF16P16 = 0; }
+        if      (newpan <= -(1 << 15)) { v->panFactorLeftF16P16 = 1 << 16; v->panFactorRightF16P16 = 0; }
         else if (newpan >=  1 << 15) { v->panFactorLeftF16P16 = 0; v->panFactorRightF16P16 = 1 << 16; }
         else { v->panFactorLeftF16P16 = tsf_sqrtF16P16( (1<<15) - newpan); v->panFactorRightF16P16 = tsf_sqrtF16P16( (1<<15) + newpan); }
 #endif
@@ -2304,7 +2304,7 @@ TSFDEF int tsf_channel_set_pan(tsf* f, int channel, float pan)
 			else { v->panFactorLeft = TSF_SQRTF(0.5f - newpan); v->panFactorRight = TSF_SQRTF(0.5f + newpan); }
 #else
                         fixed16p16 newpan = v->region->panF16P16 + (fixed16p16)(pan * 65536.0f) - (1 << 15);
-                        if      (newpan <= -1 << 15) { v->panFactorLeftF16P16 = 1 << 16; v->panFactorRightF16P16 = 0; }
+                        if      (newpan <= -(1 << 15)) { v->panFactorLeftF16P16 = 1 << 16; v->panFactorRightF16P16 = 0; }
                         else if (newpan >=  1 << 15) { v->panFactorLeftF16P16 = 0; v->panFactorRightF16P16 = 1 << 16; }
                         else { v->panFactorLeftF16P16 = tsf_sqrtF16P16( (1<<15) - newpan); v->panFactorRightF16P16 = tsf_sqrtF16P16( (1<<15) + newpan); }
 #endif
