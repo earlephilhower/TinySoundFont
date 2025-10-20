@@ -13,7 +13,7 @@ static tsf* g_TinySoundFont;
 // A Mutex so we don't call note_on/note_off while rendering audio samples
 static ma_mutex g_Mutex;
 
-#include "dump.h"
+#include "scratch2010.h"
 
 FILE *f;
 

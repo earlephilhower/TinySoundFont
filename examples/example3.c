@@ -8,7 +8,7 @@
 
 #include "../tsf.h"
 
-#include "dump.h"
+#include "scratch2010.h"
 
 #define TML_IMPLEMENTATION
 #include "../tml.h"
