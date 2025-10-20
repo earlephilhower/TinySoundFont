@@ -2292,7 +2292,7 @@ TSFDEF int tsf_channel_set_pan(tsf* f, int channel, float pan)
 			else if (newpan >=  0.5f) { v->panFactorLeft = 0.0f; v->panFactorRight = 1.0f; }
 			else { v->panFactorLeft = TSF_SQRTF(0.5f - newpan); v->panFactorRight = TSF_SQRTF(0.5f + newpan); }
 #else
-                        fixed16p16 newpan = v->region->panF16P16 + (fixed16p16)(pan * 65536.0) - (1 << 15);
+                        fixed16p16 newpan = v->region->panF16P16 + (fixed16p16)(pan * 65536.0f) - (1 << 15);
                         if      (newpan <= -1 << 15) { v->panFactorLeftF16P16 = 1 << 16; v->panFactorRightF16P16 = 0; }
                         else if (newpan >=  1 << 15) { v->panFactorLeftF16P16 = 0; v->panFactorRightF16P16 = 1 << 16; }
                         else { v->panFactorLeftF16P16 = tsf_sqrtF16P16( (1<<15) - newpan); v->panFactorRightF16P16 = tsf_sqrtF16P16( (1<<15) + newpan); }
