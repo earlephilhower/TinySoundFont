@@ -2,8 +2,6 @@
 #define TSF_IMPLEMENTATION
 #include "../tsf.h"
 
-// Holds the global instance pointer
-static tsf* g_TinySoundFont;
 
 FILE *dump;
 
@@ -85,9 +83,17 @@ void dump_shortsamples(const float *f, int cnt) {
 }
 #endif
 
-void dump_tsf(tsf* t) {
-    dump = fopen("dump.h", "w");
+void dump_tsf(tsf* t, const char *outf) {
+    dump = fopen(outf, "w");
+    if (!dump) {
+        fprintf(stderr, "Error, unable to open '%s' for writing\n", outf);
+        return;
+    }
    
+    fprintf(dump, "// Soundfont Header from '%s'\n", outf);
+    fprintf(dump, "#define TSF_HEADER\n");
+    fprintf(dump, "#include <libtinysoundfont/tsf.h>\n");
+
     dump_presets(t->presets, t->presetNum);
 #ifndef TSF_SAMPLES_SHORT
     dump_fontsamples(t->fontSamples, t->samplesNum);
@@ -120,16 +126,17 @@ void dump_tsf(tsf* t) {
 
 int main(int argc, char *argv[])
 {
-	g_TinySoundFont = tsf_load_filename(
-		(argc >= 2 ? argv[1] : "florestan-subset.sf2")
-	);
-	if (!g_TinySoundFont)
-	{
-		fprintf(stderr, "Could not load SoundFont\n");
-		return 1;
-	}
+    // Holds the global instance pointer
+    tsf *tsf;
+    tsf = tsf_load_filename( (argc >= 2 ? argv[1] : "florestan-subset.sf2"));
+    if (!tsf) {
+        fprintf(stderr, "Could not load SoundFont\n");
+        return 1;
+    }
 
-        dump_tsf(g_TinySoundFont);
+    const char *out = argc >= 3 ? argv[2] : "soundfont.h";
 
-	return 0;
+    dump_tsf(tsf, out);
+
+    return 0;
 }
