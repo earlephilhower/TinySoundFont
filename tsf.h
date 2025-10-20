@@ -480,7 +480,7 @@ struct tsf_region
 {
 	int loop_mode;
 	unsigned int sample_rate;
-#ifdef TSF_SAMPLES_SHORT // ESP8266 // In flash, ESP8266 only can read 32b w/o help
+#ifdef TSF_SAMPLES_SHORT // In flash, ESP8266 only can read 32b w/o help
         unsigned int lokey, hikey, lovel, hivel;
 #else
 	unsigned char lokey, hikey, lovel, hivel;
@@ -489,7 +489,7 @@ struct tsf_region
 	int transpose, tune, pitch_keycenter, pitch_keytrack;
 	float attenuation, pan;
 #ifdef TSF_SAMPLES_SHORT
-       float attenuationF16P16, panF16P16;
+        fixed16p16 attenuationF16P16, panF16P16;
 #endif
 	struct tsf_envelope ampenv, modenv;
 	int initialFilterQ, initialFilterFc;
@@ -503,7 +503,7 @@ struct tsf_region
 struct tsf_preset
 {
 	tsf_char20 presetName;
-#ifdef TSF_SAMPLES_SHORT //ESP8266 // In flash, ESP8266 only can read 32b w/o help
+#ifdef TSF_SAMPLES_SHORT // In flash, ESP8266 only can read 32b w/o help
         tsf_u32 preset, bank;
 #else
 	tsf_u16 preset, bank;
