@@ -1538,6 +1538,13 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 #else
 static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuffer, int numSamples)
 {
+#ifdef ESP8266
+    static unsigned int smps = 0;
+    if (++smps > 20000) {
+        yield();
+        smps = 0;
+    }
+#endif
 	TSF_CONST struct tsf_region* region = v->region;
         TSF_CONST short* input = f->shortSamples;
 	short* outL = outputBuffer;
@@ -1562,6 +1569,7 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 	float tmpSampleRate = f->outSampleRate; //, tmpInitialFilterFc, tmpModLfoToFilterFc, tmpModEnvToFilterFc;
 
 	TSF_BOOL dynamicPitchRatio = (region->modLfoToPitch || region->modEnvToPitch || region->vibLfoToPitch);
+
         fixed16p16 pitchRatioF16P16;
 //	double pitchRatio;
 	float tmpModLfoToPitchD16, tmpVibLfoToPitchD16, tmpModEnvToPitchD16;
@@ -1626,7 +1634,7 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 #ifdef ESP8266
                                         fixed16p16 val = pgm_read_word(&input[pos >> 8]);
 #else
-                                        fixed16p16 val =input[pos >> 8];
+                                        fixed16p16 val = input[pos >> 8];
 #endif
 
 					// Low-pass filter.
@@ -1978,7 +1986,7 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 				struct tsf_voice* newVoices;
 				f->voiceNum += 4;
 				newVoices = (struct tsf_voice*)TSF_REALLOC(f->voices, f->voiceNum * sizeof(struct tsf_voice));
-				if (!newVoices) return 0;
+				if (!newVoices) { f->voiceNum -= 4; return 0; }
 				f->voices = newVoices;
 				voice = &f->voices[f->voiceNum - 4];
 				voice[1].playingPreset = voice[2].playingPreset = voice[3].playingPreset = -1;
