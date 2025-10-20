@@ -71,20 +71,7 @@ extern "C" {
 #endif
 
 // Define this to use 16 fixed point samples instead of floating point
-#ifdef TSF_SAMPLES_SHORT
-#include <stdint.h>
-typedef int64_t fixed32p32;
-typedef int32_t fixed30p2;
-typedef int32_t fixed24p8;
-typedef int32_t fixed16p16;
-typedef int32_t fixed8p24;
-#if defined(ARDUINO_ARCH_RP2040) && defined(PICO_RP2350)
-#elif defined(PICO_RP2350) || defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32H4) || defined(CONFIG_IDF_TARGET_ESP32P4) // per https://developer.espressif.com/blog/2025/10/cores_with_fpu/
-#define TSF_RENDER_EFFECTSAMPLEBLOCK 64 // FPU
-#else
-#define TSF_RENDER_EFFECTSAMPLEBLOCK 256 // No FPU, can't run the analog oscillators too often
-#endif
-#endif
+//#define TSF_SAMPLES_SHORT
 
 // The load functions will return a pointer to a struct tsf which all functions
 // thereafter take as the first parameter.
@@ -286,6 +273,15 @@ TSFDEF float tsf_channel_get_tuning(tsf* f, int channel);
 
 #if defined(TSF_IMPLEMENTATION) || defined(TSF_HEADER)
 
+#ifdef TSF_SAMPLES_SHORT
+#if defined(ARDUINO_ARCH_RP2040) && defined(PICO_RP2350)
+#elif defined(PICO_RP2350) || defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32H4) || defined(CONFIG_IDF_TARGET_ESP32P4) // per https://developer.espressif.com/blog/2025/10/cores_with_fpu/
+#define TSF_RENDER_EFFECTSAMPLEBLOCK 64 // FPU
+#else
+#define TSF_RENDER_EFFECTSAMPLEBLOCK 256 // No FPU, can't run the analog oscillators too often
+#endif
+#endif
+
 // The lower this block size is the more accurate the effects are.
 // Increasing the value significantly lowers the CPU usage of the voice rendering.
 // If LFO affects the low-pass filter it can be hearable even as low as 8.
@@ -354,6 +350,16 @@ typedef unsigned short tsf_u16;
 typedef signed short tsf_s16;
 typedef unsigned int tsf_u32;
 typedef char tsf_char20[20];
+
+#ifdef TSF_SAMPLES_SHORT
+#include <stdint.h>
+typedef int64_t fixed32p32;
+typedef int32_t fixed30p2;
+typedef int32_t fixed24p8;
+typedef int32_t fixed16p16;
+typedef int32_t fixed8p24;
+#endif
+
 
 #define TSF_FourCCEquals(value1, value2) (value1[0] == value2[0] && value1[1] == value2[1] && value1[2] == value2[2] && value1[3] == value2[3])
 
@@ -463,8 +469,8 @@ static void tsf_hydra_read_shdr(struct tsf_hydra_shdr* i, struct tsf_stream* str
 struct tsf_riffchunk { tsf_fourcc id; tsf_u32 size; };
 struct tsf_envelope { float delay, attack, hold, decay, sustain, release, keynumToHold, keynumToDecay; };
 struct tsf_voice_envelope { unsigned char segment, segmentIsExponential : 1, isAmpEnv : 1; short midiVelocity; float level, slope; int samplesUntilNextSegment; struct tsf_envelope parameters; };
-struct tsf_voice_lowpass { double QInv, a0, a1, b1, b2, z1, z2; TSF_BOOL active; };
 #ifndef TSF_SAMPLES_SHORT
+struct tsf_voice_lowpass { double QInv, a0, a1, b1, b2, z1, z2; TSF_BOOL active; };
 struct tsf_voice_lfo { int samplesUntil; float level, delta; };
 #else
 struct tsf_voice_lfo { int samplesUntil; fixed16p16 levelF16P16, deltaF16P16; };
@@ -474,12 +480,16 @@ struct tsf_region
 {
 	int loop_mode;
 	unsigned int sample_rate;
+#ifdef TSF_SAMPLES_SHORT // ESP8266 // In flash, ESP8266 only can read 32b w/o help
+        unsigned int lokey, hikey, lovel, hivel;
+#else
 	unsigned char lokey, hikey, lovel, hivel;
+#endif
 	unsigned int group, offset, end, loop_start, loop_end;
 	int transpose, tune, pitch_keycenter, pitch_keytrack;
 	float attenuation, pan;
 #ifdef TSF_SAMPLES_SHORT
-	float attenuationF16P16, panF16P16;
+       float attenuationF16P16, panF16P16;
 #endif
 	struct tsf_envelope ampenv, modenv;
 	int initialFilterQ, initialFilterFc;
@@ -493,7 +503,11 @@ struct tsf_region
 struct tsf_preset
 {
 	tsf_char20 presetName;
+#ifdef TSF_SAMPLES_SHORT //ESP8266 // In flash, ESP8266 only can read 32b w/o help
+        tsf_u32 preset, bank;
+#else
 	tsf_u16 preset, bank;
+#endif
 	TSF_CONST struct tsf_region* regions;
 	int regionNum;
 };
@@ -569,17 +583,17 @@ static float tsf_decibelsToGain(float db) { return (db > -100.f ? TSF_POWF(10.0f
 static float tsf_gainToDecibels(float gain) { return (gain <= .00001f ? -100.f : (float)(20.0 * TSF_LOG10(gain))); }
 #ifdef TSF_SAMPLES_SHORT
 static const size_t tsf_db2gain_sz = 57;
-static const fixed16p16 tsf_db2gain_in[] = {-6553600, -5898240, -5242880, -4587520, -3932160, -3276800, -2621440, -1966080, -1310720, -1245184, -1179648, -1114112, -1048576, -983040, -917504, -851968, -786432, -720896, -655360, -589824, -524288, -458752, -393216, -327680, -262144, -196608, -131072, -65536, 0, 65536, 131072, 196608, 262144, 327680, 393216, 458752, 524288, 589824, 655360, 720896, 786432, 851968, 917504, 983040, 1048576, 1114112, 1179648, 1245184, 1310720, 1376256, 1441792, 1507328, 1572864, 1638400, 1966080, 2293760, 2621440, };
-static const fixed16p16 tsf_db2gain_inv[] = {6553, 6553, 6553, 6553, 6553, 6553, 6553, 6553, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 13107, 13107, 13107, 0, };
-static const fixed16p16 tsf_db2gain_out[] = {0, 2, 6, 20, 65, 207, 655, 2072, 6553, 7353, 8250, 9257, 10386, 11654, 13076, 14671, 16461, 18470, 20724, 23253, 26090, 29273, 32845, 36853, 41350, 46395, 52057, 58409, 65536, 73532, 82504, 92572, 103867, 116541, 130761, 146716, 164618, 184705, 207243, 232530, 260903, 292738, 328458, 368536, 413504, 463959, 520570, 584090, 655360, 735325, 825049, 925720, 1038675, 1165413, 2072430, 3685360, 6553600, };
+static const fixed16p16 tsf_db2gain_in PROGMEM [] = {-6553600, -5898240, -5242880, -4587520, -3932160, -3276800, -2621440, -1966080, -1310720, -1245184, -1179648, -1114112, -1048576, -983040, -917504, -851968, -786432, -720896, -655360, -589824, -524288, -458752, -393216, -327680, -262144, -196608, -131072, -65536, 0, 65536, 131072, 196608, 262144, 327680, 393216, 458752, 524288, 589824, 655360, 720896, 786432, 851968, 917504, 983040, 1048576, 1114112, 1179648, 1245184, 1310720, 1376256, 1441792, 1507328, 1572864, 1638400, 1966080, 2293760, 2621440, };
+static const fixed16p16 tsf_db2gain_inv PROGMEM [] = {6553, 6553, 6553, 6553, 6553, 6553, 6553, 6553, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 65536, 13107, 13107, 13107, 0, };
+static const fixed16p16 tsf_db2gain_out PROGMEM [] = {0, 2, 6, 20, 65, 207, 655, 2072, 6553, 7353, 8250, 9257, 10386, 11654, 13076, 14671, 16461, 18470, 20724, 23253, 26090, 29273, 32845, 36853, 41350, 46395, 52057, 58409, 65536, 73532, 82504, 92572, 103867, 116541, 130761, 146716, 164618, 184705, 207243, 232530, 260903, 292738, 328458, 368536, 413504, 463959, 520570, 584090, 655360, 735325, 825049, 925720, 1038675, 1165413, 2072430, 3685360, 6553600, };
 static const size_t tsf_gain2db_sz = 85;
-static const fixed16p16 tsf_gain2db_in[] = {0, 1, 1, 2, 3, 5, 8, 12, 19, 28, 43, 64, 96, 144, 217, 326, 489, 734, 1102, 1652, 2479, 3719, 5579, 8368, 9205, 10125, 11138, 12251, 13477, 14824, 16307, 17937, 19732, 21704, 23875, 26263, 28889, 31778, 34956, 38451, 42296, 46527, 51179, 56297, 61927, 68120, 74931, 82425, 90667, 99734, 109707, 120678, 132747, 146021, 160623, 176686, 194354, 213790, 235169, 258686, 284554, 313010, 344311, 378742, 416616, 458278, 504106, 554516, 609968, 762460, 953075, 1191344, 1489179, 1861475, 2326844, 2908555, 3635693, 4544617, 5680771, 7100964, 8876205, 11095256, 13869070, 17336338, 21670422, };
-static const fixed16p16 tsf_gain2db_inv[] = {-2147483648, -2147483648, -2147483648, -2147483648, -2147483648, 1638400000, 1092266624, 655360064, 436906656, 297890880, 204800000, 131072008, 89775328, 59041452, 39479512, 26319680, 17522994, 11681996, 7801906, 5197145, 3463847, 2309232, 1539849, 5132029, 4667808, 4239064, 3857329, 3504598, 3187549, 2897258, 2634082, 2393572, 2177276, 1978743, 1798462, 1635537, 1486751, 1351536, 1228646, 1117027, 1015275, 923171, 839236, 762845, 693575, 630517, 573168, 521078, 473697, 430647, 391493, 355884, 323554, 294133, 267384, 243085, 220987, 200895, 182632, 166031, 150935, 137216, 124740, 113401, 103090, 93719, 85200, 77453, 28165, 22532, 18025, 14420, 11536, 9229, 7383, 5906, 4725, 3780, 3024, 2419, 1935, 1548, 1238, 990, 0, };
-static const fixed16p16 tsf_gain2db_out[] = {-6553600, -6159034, -5928227, -5764468, -5533661, -5302855, -5093532, -4877512, -4636805, -4399493, -4168687, -3943660, -3708994, -3480758, -3249094, -3018287, -2787481, -2556421, -2325445, -2094864, -1864058, -1633201, -1402362, -1171578, -1117319, -1063087, -1008799, -954564, -900295, -846054, -791802, -737554, -683283, -629044, -574788, -520521, -466273, -412021, -357767, -303512, -249261, -194998, -140748, -86496, -32238, 22013, 76266, 130522, 184775, 239030, 293284, 347538, 401794, 456047, 510301, 564557, 618811, 673065, 727319, 781573, 835827, 890082, 944335, 998590, 1052844, 1107098, 1161353, 1215607, 1269861, 1396883, 1523904, 1650927, 1777948, 1904970, 2031992, 2159014, 2286036, 2413058, 2540080, 2667102, 2794124, 2921145, 3048167, 3175189, 3302211, };
+static const fixed16p16 tsf_gain2db_in PROGMEM [] = {0, 1, 1, 2, 3, 5, 8, 12, 19, 28, 43, 64, 96, 144, 217, 326, 489, 734, 1102, 1652, 2479, 3719, 5579, 8368, 9205, 10125, 11138, 12251, 13477, 14824, 16307, 17937, 19732, 21704, 23875, 26263, 28889, 31778, 34956, 38451, 42296, 46527, 51179, 56297, 61927, 68120, 74931, 82425, 90667, 99734, 109707, 120678, 132747, 146021, 160623, 176686, 194354, 213790, 235169, 258686, 284554, 313010, 344311, 378742, 416616, 458278, 504106, 554516, 609968, 762460, 953075, 1191344, 1489179, 1861475, 2326844, 2908555, 3635693, 4544617, 5680771, 7100964, 8876205, 11095256, 13869070, 17336338, 21670422, };
+static const fixed16p16 tsf_gain2db_inv PROGMEM [] = {-2147483648, -2147483648, -2147483648, -2147483648, -2147483648, 1638400000, 1092266624, 655360064, 436906656, 297890880, 204800000, 131072008, 89775328, 59041452, 39479512, 26319680, 17522994, 11681996, 7801906, 5197145, 3463847, 2309232, 1539849, 5132029, 4667808, 4239064, 3857329, 3504598, 3187549, 2897258, 2634082, 2393572, 2177276, 1978743, 1798462, 1635537, 1486751, 1351536, 1228646, 1117027, 1015275, 923171, 839236, 762845, 693575, 630517, 573168, 521078, 473697, 430647, 391493, 355884, 323554, 294133, 267384, 243085, 220987, 200895, 182632, 166031, 150935, 137216, 124740, 113401, 103090, 93719, 85200, 77453, 28165, 22532, 18025, 14420, 11536, 9229, 7383, 5906, 4725, 3780, 3024, 2419, 1935, 1548, 1238, 990, 0, };
+static const fixed16p16 tsf_gain2db_out PROGMEM [] = {-6553600, -6159034, -5928227, -5764468, -5533661, -5302855, -5093532, -4877512, -4636805, -4399493, -4168687, -3943660, -3708994, -3480758, -3249094, -3018287, -2787481, -2556421, -2325445, -2094864, -1864058, -1633201, -1402362, -1171578, -1117319, -1063087, -1008799, -954564, -900295, -846054, -791802, -737554, -683283, -629044, -574788, -520521, -466273, -412021, -357767, -303512, -249261, -194998, -140748, -86496, -32238, 22013, 76266, 130522, 184775, 239030, 293284, 347538, 401794, 456047, 510301, 564557, 618811, 673065, 727319, 781573, 835827, 890082, 944335, 998590, 1052844, 1107098, 1161353, 1215607, 1269861, 1396883, 1523904, 1650927, 1777948, 1904970, 2031992, 2159014, 2286036, 2413058, 2540080, 2667102, 2794124, 2921145, 3048167, 3175189, 3302211, };
 static const size_t tsf_sqrtf_sz = 8;
-static const fixed16p16 tsf_sqrtf_in[] = {0, 1310, 3276, 6553, 13107, 19660, 26214, 32768, };
-static const fixed16p16 tsf_sqrtf_inv[] = {3276800, 2184533, 1310720, 655360, 655359, 655360, 655360, 0, };
-static const fixed16p16 tsf_sqrtf_out[] = {0, 9268, 14654, 20724, 29308, 35895, 41448, 46340, };
+static const fixed16p16 tsf_sqrtf_in PROGMEM [] = {0, 1310, 3276, 6553, 13107, 19660, 26214, 32768, };
+static const fixed16p16 tsf_sqrtf_inv PROGMEM [] = {3276800, 2184533, 1310720, 655360, 655359, 655360, 655360, 0, };
+static const fixed16p16 tsf_sqrtf_out PROGMEM [] = {0, 9268, 14654, 20724, 29308, 35895, 41448, 46340, };
 
 
 static fixed16p16 tsf_interpolate_16p16(fixed16p16 db, const fixed16p16 *inx,  const fixed16p16 *outfcn, const fixed16p16 *delbainv, const int elements) {
@@ -1606,7 +1620,11 @@ static void tsf_voice_render_short(tsf* f, struct tsf_voice* v, short* outputBuf
 
 //					// Simple linear interpolation.
 //					float alpha = (float)(tmpSourceSamplePosition - pos), val = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
-                                        fixed16p16 val = input[pos >> 8];
+#ifdef ESP8266
+                                        fixed16p16 val = pgm_read_short(&input[pos >> 8]);
+#else
+                                        fixed16p16 val =input[pos >> 8];
+#endif
 
 					// Low-pass filter.
 					//if (tmpLowpass.active) val = tsf_voice_lowpass_process(&tmpLowpass, val);

@@ -1,3 +1,6 @@
+#include <stdio.h>
+
+#define PROGMEM
 #define TSF_SAMPLES_SHORT
 #define TSF_IMPLEMENTATION
 #include "../tsf.h"
@@ -19,7 +22,7 @@ void dump_region(const struct tsf_region *r) {
     fprintf(dump, " .lokey=%u, .hikey=%u, .lovel=%u, .hivel=%u,\n", r->lokey, r->hikey, r->lovel, r->hivel);
     fprintf(dump, " .group=%u, .offset=%u, .end=%u, .loop_start=%u, .loop_end=%u,\n", r->group, r->offset, r->end, r->loop_start, r->loop_end);
     fprintf(dump, " .transpose=%d, .tune=%d, .pitch_keycenter=%d, .pitch_keytrack=%d,\n", r->transpose, r->tune, r->pitch_keycenter, r->pitch_keytrack);
-    fprintf(dump, " .attenuation=%f, .attenuationF16P16=%d, .pan=%f, .panF16P16 = %d\n", r->attenuation, (int)(r->attenuation * 65536.0), r->pan, (int)(r->pan * 65536.0));
+    fprintf(dump, " .attenuation=%f, .attenuationF16P16=%d, .pan=%f, .panF16P16 = %d,\n", r->attenuation, (int)(r->attenuation * 65536.0), r->pan, (int)(r->pan * 65536.0));
     fprintf(dump, " .ampenv=%s,\n", dump_envelope(r->ampenv));
     fprintf(dump, " .modenv=%s,\n", dump_envelope(r->modenv));
     fprintf(dump, " .initialFilterQ=%d, .initialFilterFc=%d,\n", r->initialFilterQ,r-> initialFilterFc);
@@ -39,7 +42,7 @@ const char *dump_char20(const char *p) {
 
 void dump_presets(const struct tsf_preset *p, int cnt) {
     for (int idx = 0; idx < cnt; idx++) {
-        fprintf(dump, "static const struct tsf_region preset_%d_regions[] = {\n", idx);
+        fprintf(dump, "static const struct tsf_region preset_%d_regions[] PROGMEM = {\n", idx);
         for (int i=0; i<p[idx].regionNum; i++) {
             dump_region(&p[idx].regions[i]);
             fprintf(dump, ",\n");
@@ -47,7 +50,7 @@ void dump_presets(const struct tsf_preset *p, int cnt) {
         fprintf(dump, "};\n");
     }
 
-    fprintf(dump, "static const struct tsf_preset presets[] = {\n");
+    fprintf(dump, "static const struct tsf_preset presets[] PROGMEM = {\n");
     for (int idx=0; idx < cnt; idx++) {
         fprintf(dump, "{\n");
         fprintf(dump, " .presetName=%s,\n", dump_char20(p[idx].presetName));
@@ -61,7 +64,7 @@ void dump_presets(const struct tsf_preset *p, int cnt) {
 
 #ifdef TSF_SAMPLES_SHORT
 void dump_shortsamples(const short *s, int cnt) {
-    fprintf(dump, "static const short shortSamples[%d] = {\n", cnt);
+    fprintf(dump, "static const short shortSamples[%d] PROGMEM = {\n", cnt);
     for (int i=0; i <cnt; i++) {
         if ((i%16) == 15) {
             fprintf(dump, "\n");
@@ -72,7 +75,7 @@ void dump_shortsamples(const short *s, int cnt) {
 }
 #else
 void dump_shortsamples(const float *f, int cnt) {
-    fprintf(dump, "static const float fontSamples[%d] = {\n", cnt);
+    fprintf(dump, "static const float fontSamples[%d] PROGMEM = {\n", cnt);
     for (int i=0; i <cnt; i++) {
         if ((i%16) == 15) {
             fprintf(dump, "\n");
@@ -91,8 +94,10 @@ void dump_tsf(tsf* t, const char *outf) {
     }
    
     fprintf(dump, "// Soundfont Header from '%s'\n", outf);
+    fprintf(dump, "#ifndef TSF_INCLUDE_TSF_INL\n");
     fprintf(dump, "#define TSF_HEADER\n");
     fprintf(dump, "#include <libtinysoundfont/tsf.h>\n");
+    fprintf(dump, "#endif\n");
 
     dump_presets(t->presets, t->presetNum);
 #ifndef TSF_SAMPLES_SHORT

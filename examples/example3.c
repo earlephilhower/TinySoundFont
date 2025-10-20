@@ -1,6 +1,7 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio_io.h"
 
+#define PROGMEM
 #define TSF_IMPLEMENTATION
 #define TSF_CONST_FILE
 #define TSF_SAMPLES_SHORT
