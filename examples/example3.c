@@ -51,9 +51,10 @@ static void AudioCallback(ma_device* pDevice, void* pOutput, const void* pInput,
 					break;
 			}
 		}
-
+                short *space = (short *)malloc(SampleBlock * 4 * 2);
 		// Render the block of audio samples in float format
-		tsf_render_short(g_TinySoundFont, stream, (int)SampleBlock, 0);
+		tsf_render_short_2x(g_TinySoundFont, space /*stream*/, (int)SampleBlock, 0);
+                memcpy(stream, space, SampleBlock * 4);
 	}
 }
 

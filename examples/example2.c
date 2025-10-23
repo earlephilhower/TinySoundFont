@@ -25,7 +25,9 @@ static void AudioCallback(ma_device* pDevice, void* pOutput, const void* pInput,
 #ifndef TSF_SAMPLES_SHORT
 	tsf_render_float(g_TinySoundFont, (float*)pOutput, (int)frameCount, 0);
 #else
-        tsf_render_short(g_TinySoundFont, (short*)pOutput, (int)frameCount, 0);
+        short *space = (short *)malloc(frameCount * 4 * 2);
+        tsf_render_short_2x(g_TinySoundFont, (short*)space, (int)frameCount, 0);
+        memcpy(pOutput, space, frameCount * 4);
 #endif
         fwrite(pOutput, frameCount, sizeof(short), f);
 	ma_mutex_unlock(&g_Mutex);
